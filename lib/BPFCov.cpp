@@ -213,6 +213,13 @@ bool BPFCov::runOnModule(Module &M)
 
     bool instrumented = false;
 
+    // Bail out when missing debug info
+    if (M.debug_compile_units().empty())
+    {
+        errs() << "Missing debug info\n";
+        return instrumented;
+    }
+
     for (auto &F : M)
     {
         instrumented |= runOnFunction(F, M);
