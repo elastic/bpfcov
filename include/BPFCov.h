@@ -3,6 +3,7 @@
 
 #include "llvm/IR/PassManager.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/raw_ostream.h"
 
 struct BPFCov : public llvm::PassInfoMixin<BPFCov>
 {
@@ -10,23 +11,23 @@ struct BPFCov : public llvm::PassInfoMixin<BPFCov>
 
     static bool isRequired() { return true; }
 
-    bool runOnModule(llvm::Module &M);
-    bool runOnFunction(llvm::Function &F, llvm::Module &M);
+    virtual bool runOnModule(llvm::Module &M);
+    virtual bool runOnFunction(llvm::Function &F, llvm::Module &M);
     // virtual bool runOnBasicBlock(BasicBlock &BB, Module &M);
 };
 
 //------------------------------------------------------------------------------
 // Legacy PM interface
 //------------------------------------------------------------------------------
-// struct LegacyBPFCov : public llvm::ModulePass {
+struct LegacyBPFCov : public llvm::ModulePass
+{
+    static char ID;
+    LegacyBPFCov() : llvm::ModulePass(ID) {}
+    bool runOnModule(llvm::Module &M) override;
 
-//   static char ID;
-//   LegacyBPFCov() : llvm::ModulePass(ID) {}
-//   bool runOnModule(llvm::Module &M) override;
+    void print(llvm::raw_ostream &OutS, llvm::Module const *M) const override;
 
-//   void print(llvm::raw_ostream &OutS, llvm::Module const *M) const override;
-
-//   BPFCov Impl;
-// };
+    BPFCov Impl;
+};
 
 #endif // LLVM_BPFCOV_H

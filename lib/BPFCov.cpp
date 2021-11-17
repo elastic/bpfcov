@@ -8,7 +8,6 @@
 #include "llvm/PassRegistry.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 
@@ -286,28 +285,31 @@ llvmGetPassPluginInfo()
 // Legacy PM / Implementation
 //-----------------------------------------------------------------------------
 
-// char LegacyBPFCov::ID = 0;
+char LegacyBPFCov::ID = 0;
 
-// bool LegacyBPFCov::runOnModule(llvm::Module &M) {
-//   errs() << "runOnModule (legacy)\n";
-//   return Impl.runOnModule(M);
-// }
+bool LegacyBPFCov::runOnModule(llvm::Module &M)
+{
+    errs() << "runOnModule (Legacy Pass Manager)\n";
+    return Impl.runOnModule(M);
+}
 
-// void LegacyBPFCov::print(raw_ostream &OutStream, const Module *) const {
-//   OutStream << "LegacyBPFCov\n";
-// }
+void LegacyBPFCov::print(raw_ostream &OutStream, const Module *) const
+{
+    OutStream << "BPFCov (Legacy Pass Manager)\n";
+}
 
 //-----------------------------------------------------------------------------
 // Legacy PM / Registration
 //-----------------------------------------------------------------------------
 
-// static RegisterPass<LegacyBPFCov> X(/*PassArg=*/"legacy-simple-pass",
-//                                         /*Name=*/"BPFCov (Legacy)",
-//                                         /*CFGOnly=*/false,
-//                                         /*is_analysis=*/false);
+static RegisterPass<LegacyBPFCov> X(/*PassArg=*/DEBUG_TYPE,
+                                    /*Name=*/"BPFCov (Legacy Pass Manager)",
+                                    /*CFGOnly=*/false,
+                                    /*is_analysis=*/false);
 
-// static RegisterStandardPasses RegisterBPFCov(
-//     PassManagerBuilder::EP_EarlyAsPossible,
-//     [](const PassManagerBuilder &, legacy::PassManagerBase &PM) {
-//       PM.add(new LegacyBPFCov());
-//     });
+static RegisterStandardPasses RegisterBPFCov(
+    PassManagerBuilder::EP_EarlyAsPossible,
+    [](const PassManagerBuilder &, legacy::PassManagerBase &PM)
+    {
+        PM.add(new LegacyBPFCov());
+    });
