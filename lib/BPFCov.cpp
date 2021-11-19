@@ -1,3 +1,29 @@
+//=====================================================================================================================
+// FILE:
+//    BPFCov.cpp
+//
+// AUTHOR:
+//    Leonardo Di Donato (leodido)
+//
+// DESCRIPTION:
+//    ...
+//
+//    ...
+//
+// USAGE:
+//    1. Legacy LLVM Pass Manager
+//      opt --load libBPFCov.{so,dylib} --bpf-cov <input-llvm-file>
+//
+//    2. New LLVM Pass Manager
+//      opt --load-pass-plugin libBPFCov.{so,dylib} [--stats] --passes='bpf-cov' <input-llvm-file>
+//
+//      OR
+//
+//      opt --load-pass-plugin libBPFCov.{so,dylib} [--stats] --passes='default<O2>' <input-llvm-file>
+//
+// LICENSE:
+//    ...
+//=====================================================================================================================
 #include "BPFCov.h"
 #include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/DebugInfo.h"
@@ -11,10 +37,15 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 
-#define DEBUG_TYPE "bpf-cov"
+static constexpr char PassArg[] = "bpf-cov";
+static constexpr char PassName[] = "Instrument eBPF program for code coverage";
+static constexpr char PluginName[] = "BPFCov";
+
+#define DEBUG_TYPE ::PassArg
 
 // NOTE > LLVM_DEBUG requires a LLVM built with NDEBUG unset
 // NOTE > Then use with opt -debug
+// TODO > Create unnamed namespace for private functions
 
 using namespace llvm;
 
@@ -26,9 +57,9 @@ std::string Suffix = "_map";
 // auto &DL = M.getDataLayout();
 // IRB.getInt32Ty();
 
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 // Utility functions
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 
 Constant *CreateMap(Module &M, StringRef FunctionName)
 {
@@ -197,11 +228,11 @@ Constant *CreateMap(Module &M, StringRef FunctionName)
     return MapVar;
 }
 
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 // Implementation
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 
-PreservedAnalyses BPFCov::run(Module &M, ModuleAnalysisManager &)
+PreservedAnalyses BPFCov::run(Module &M, ModuleAnalysisManager &MAM)
 {
     bool changed = runOnModule(M);
     return (changed ? PreservedAnalyses::none() : PreservedAnalyses::all());
@@ -250,28 +281,28 @@ bool BPFCov::runOnFunction(Function &F, Module &M)
 //   return false;
 // }
 
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 // New PM / Registration
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 PassPluginLibraryInfo getBPFCovPluginInfo()
 {
-    return {LLVM_PLUGIN_API_VERSION, "simple-pass", LLVM_VERSION_STRING,
+    return {LLVM_PLUGIN_API_VERSION, PluginName, LLVM_VERSION_STRING,
             [](PassBuilder &PB)
             {
-                // #1 Regiser "opt -passes=simple-pass"
-                // PB.registerPipelineParsingCallback(
-                //     [&](StringRef Name, ModulePassManager &MPM,
-                //         ArrayRef<PassBuilder::PipelineElement>) {
-                //       if (Name == "simple-pass") {
-                //         MPM.addPass(BPFCov());
-                //         return true;
-                //       }
-                //       return false;
-                //     });
-                // #2 Register for running automatically at "-O2"
+                // #1 Regiser "opt -passes=bpf-cov"
+                PB.registerPipelineParsingCallback(
+                    [&](StringRef Name, ModulePassManager &MPM, ArrayRef<PassBuilder::PipelineElement>)
+                    {
+                        if (Name.equals(PassArg))
+                        {
+                            MPM.addPass(BPFCov());
+                            return true;
+                        }
+                        return false;
+                    });
+                // #2 Register for running automatically at "default<O2>"
                 PB.registerPipelineStartEPCallback(
-                    [&](ModulePassManager &MPM,
-                        ArrayRef<PassBuilder::OptimizationLevel> OLevels)
+                    [&](ModulePassManager &MPM, ArrayRef<PassBuilder::OptimizationLevel> OLevels)
                     {
                         if (OLevels.size() == 1 &&
                             OLevels[0] == PassBuilder::OptimizationLevel::O2)
@@ -288,9 +319,9 @@ llvmGetPassPluginInfo()
     return getBPFCovPluginInfo();
 }
 
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 // Legacy PM / Implementation
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 
 char LegacyBPFCov::ID = 0;
 
@@ -305,12 +336,12 @@ void LegacyBPFCov::print(raw_ostream &OutStream, const Module *) const
     OutStream << "BPFCov (Legacy Pass Manager)\n";
 }
 
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 // Legacy PM / Registration
-//-----------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 
-static RegisterPass<LegacyBPFCov> X(/*PassArg=*/DEBUG_TYPE,
-                                    /*Name=*/"BPFCov (Legacy Pass Manager)",
+static RegisterPass<LegacyBPFCov> X(/*PassArg=*/PassArg,
+                                    /*Name=*/PassName,
                                     /*CFGOnly=*/false,
                                     /*is_analysis=*/false);
 
