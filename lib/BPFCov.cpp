@@ -302,6 +302,22 @@ namespace
         return false;
     }
 
+    bool stripSectionsWithPrefix(Module &M, StringRef Prefix)
+    {
+        bool Changed = false;
+        for (auto gv_iter = M.global_begin(); gv_iter != M.global_end(); gv_iter++)
+        {
+            GlobalVariable *GV = &*gv_iter;
+            if (GV->hasSection() && GV->getSection().startswith(Prefix))
+            {
+                errs() << "stripping " << GV->getName() << " section\n";
+                GV->setSection("");
+                Changed = true;
+            }
+        }
+        return Changed;
+    }
+
 }
 
 //---------------------------------------------------------------------------------------------------------------------
