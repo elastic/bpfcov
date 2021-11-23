@@ -252,6 +252,56 @@ namespace
         return true;
     }
 
+    bool fixupUsedGlobals(Module &M)
+    {
+        auto U = M.getNamedGlobal("llvm.used");
+        if (!U || !U->hasInitializer())
+        {
+            return false;
+        }
+
+        SmallVector<Constant *, 8> UsedGlobals;
+        auto UArray = dyn_cast<ConstantArray>(U->getInitializer());
+        auto NElems = UArray->getNumOperands();
+        for (unsigned int i = 0; i < NElems; i++)
+        {
+            if (ConstantExpr *CE = dyn_cast<ConstantExpr>(UArray->getOperand(i)))
+            {
+                auto OC = CE->getOpcode();
+                if (OC == Instruction::BitCast || OC == Instruction::GetElementPtr)
+                {
+                    if (GlobalValue *GV = dyn_cast<GlobalValue>(CE->getOperand(0)))
+                    {
+                        if (!GV->getName().startswith("__llvm_profile_runtime"))
+                        {
+                            UsedGlobals.push_back(UArray->getOperand(i));
+                        }
+                    }
+                }
+            }
+            else if (GlobalValue *GV = dyn_cast<GlobalValue>(UArray->getOperand(i)))
+            {
+                if (!GV->getName().startswith("__llvm_profile_runtime"))
+                {
+                    UsedGlobals.push_back(UArray->getOperand(i));
+                }
+            }
+        }
+
+        if (UsedGlobals.size() < NElems)
+        {
+            errs() << "fixing llvm.used\n";
+            U->eraseFromParent();
+            ArrayType *AType = ArrayType::get(Type::getInt8PtrTy(M.getContext()), UsedGlobals.size());
+            U = new GlobalVariable(M, AType, false, GlobalValue::AppendingLinkage, ConstantArray::get(AType, UsedGlobals), "llvm.used");
+            U->setSection("llvm.metadata");
+
+            return true;
+        }
+
+        return false;
+    }
+
 }
 
 //---------------------------------------------------------------------------------------------------------------------
