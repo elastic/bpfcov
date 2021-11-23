@@ -443,6 +443,17 @@ bool BPFCov::runOnModule(Module &M)
         return instrumented;
     }
 
+    // This sequence of calls is not random at all
+    instrumented |= deleteGVarByName(M, "llvm.global_ctors");
+    instrumented |= deleteFuncByName(M, "__llvm_profile_init");
+    instrumented |= deleteFuncByName(M, "__llvm_profile_register_function");
+    instrumented |= deleteFuncByName(M, "__llvm_profile_register_names_function");
+    instrumented |= fixupUsedGlobals(M);
+    instrumented |= deleteFuncByName(M, "__llvm_profile_runtime_user");
+    instrumented |= deleteGVarByName(M, "__llvm_profile_runtime");
+    instrumented |= stripSectionsWithPrefix(M, "__llvm_prf");
+    instrumented |= annotateCounters(M);
+
     for (auto &F : M)
     {
         instrumented |= runOnFunction(F, M);
