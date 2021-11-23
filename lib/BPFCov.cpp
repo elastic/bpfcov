@@ -225,6 +225,19 @@ Constant *CreateMap(Module &M, StringRef FunctionName)
 
 namespace
 {
+
+    bool deleteGVarByName(Module &M, StringRef Name)
+    {
+        auto GV = M.getNamedGlobal(Name);
+        if (!GV)
+        {
+            return false;
+        }
+        errs() << "erasing " << Name << "\n";
+        GV->eraseFromParent();
+        return true;
+    }
+
 }
 
 //---------------------------------------------------------------------------------------------------------------------
