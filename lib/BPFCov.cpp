@@ -38,7 +38,7 @@
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 
 static constexpr char PassArg[] = "bpf-cov";
-static constexpr char PassName[] = "Instrument eBPF program for code coverage";
+static constexpr char PassName[] = "BPF Coverage Pass";
 static constexpr char PluginName[] = "BPFCov";
 
 #define DEBUG_TYPE ::PassArg
@@ -51,11 +51,6 @@ using namespace llvm;
 
 std::string Prefix = "bpfcov_";
 std::string Suffix = "_map";
-
-// M.getIdentifiedStructTypes()
-// IRBuilder<> IRB(C);
-// auto &DL = M.getDataLayout();
-// IRB.getInt32Ty();
 
 //---------------------------------------------------------------------------------------------------------------------
 // Utility functions
@@ -228,6 +223,10 @@ Constant *CreateMap(Module &M, StringRef FunctionName)
     return MapVar;
 }
 
+namespace
+{
+}
+
 //---------------------------------------------------------------------------------------------------------------------
 // Implementation
 //---------------------------------------------------------------------------------------------------------------------
@@ -240,7 +239,7 @@ PreservedAnalyses BPFCov::run(Module &M, ModuleAnalysisManager &MAM)
 
 bool BPFCov::runOnModule(Module &M)
 {
-    errs() << "runOnModule\n"; // LLVM_DEBUG(dbgs() << "runOnModule\n");
+    errs() << "module: " << M.getName() << "\n"; // LLVM_DEBUG(dbgs() << "");
 
     bool instrumented = false;
 
@@ -265,13 +264,13 @@ bool BPFCov::runOnFunction(Function &F, Module &M)
     {
         return false;
     }
-    // LLVM_DEBUG(dbgs() << "runOnFunction\n");
-    errs() << "runOnFunction: " << F.getName() << "\n";
+    // LLVM_DEBUG(dbgs() << "...\n");
+    errs() << "instrumenting function: " << F.getName() << "\n";
 
     // auto insn_cnt = F.getInstructionCount();
 
     // todo >
-    CreateMap(M, F.getName());
+    // CreateMap(M, F.getName());
 
     return true;
 }
@@ -327,13 +326,25 @@ char LegacyBPFCov::ID = 0;
 
 bool LegacyBPFCov::runOnModule(llvm::Module &M)
 {
-    errs() << "runOnModule (Legacy Pass Manager)\n";
+    if (skipModule(M))
+    {
+        errs() << "legacy: skipping\n";
+        return false;
+    }
+
+    errs() << "legacy: running\n";
     return Impl.runOnModule(M);
 }
 
 void LegacyBPFCov::print(raw_ostream &OutStream, const Module *) const
 {
     OutStream << "BPFCov (Legacy Pass Manager)\n";
+}
+
+void LegacyBPFCov::getAnalysisUsage(AnalysisUsage &AU) const
+{
+    // This pass does not transform the control flow graph
+    AU.setPreservesCFG();
 }
 
 //---------------------------------------------------------------------------------------------------------------------

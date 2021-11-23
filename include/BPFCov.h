@@ -7,7 +7,7 @@
 
 struct BPFCov : public llvm::PassInfoMixin<BPFCov>
 {
-    llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &);
+    llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &MAM);
 
     static bool isRequired() { return true; }
 
@@ -24,7 +24,7 @@ struct LegacyBPFCov : public llvm::ModulePass
     static char ID;
     LegacyBPFCov() : llvm::ModulePass(ID) {}
     bool runOnModule(llvm::Module &M) override;
-
+    void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
     void print(llvm::raw_ostream &OutS, llvm::Module const *M) const override;
 
     BPFCov Impl;
