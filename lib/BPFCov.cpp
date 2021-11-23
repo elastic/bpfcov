@@ -318,6 +318,106 @@ namespace
         return Changed;
     }
 
+    bool annotateCounters(Module &M)
+    {
+        bool Annotated = false;
+
+        DIBuilder DIB(M);
+
+        Module::debug_compile_units_iterator CUIterator = M.debug_compile_units_begin();
+        auto *DebugCU = *CUIterator;
+        auto *DebugFile = DebugCU->getFile();
+
+        // Save the current list of globals from the CU debug info
+        SmallVector<Metadata *> DebugGlobals;
+        for (auto *DG : DebugCU->getGlobalVariables())
+        {
+            DebugGlobals.push_back(DG);
+        }
+
+        for (auto gv_iter = M.global_begin(); gv_iter != M.global_end(); gv_iter++)
+        {
+            GlobalVariable *GV = &*gv_iter;
+            if (GV->hasName())
+            {
+                if (GV->getName().startswith("__profc") && GV->getValueType()->isArrayTy())
+                {
+                    auto N = GV->getValueType()->getArrayNumElements();
+
+                    auto *S64Ty = DIB.createBasicType("long long int", 64, dwarf::DW_ATE_signed);
+
+                    auto *DebugArrayTy = DIB.createArrayType(
+                        /*Size=*/N * 64,
+                        /*AlignInBits=*/0,
+                        /*Ty=*/S64Ty,
+                        /*Subscripts=*/DIB.getOrCreateArray({DIB.getOrCreateSubrange(0, N)}));
+
+                    auto *DebugGVE = DIB.createGlobalVariableExpression(
+                        /*Context=*/DebugCU,
+                        /*Name=*/GV->getName(),
+                        /*LinkageName=*/"",
+                        /*File=*/DebugFile,
+                        /*LineNo=*/0,
+                        /*Ty=*/DebugArrayTy,
+                        /*IsLocalToUnit=*/GV->hasLocalLinkage(),
+                        /*IsDefinition=*/true,
+                        /*Expr=*/nullptr,
+                        /*Decl=*/nullptr,
+                        /*TemplateParams=*/nullptr,
+                        /*AlignInBits=*/0);
+
+                    GV->addDebugInfo(DebugGVE);
+                    DebugGlobals.push_back(DebugGVE);
+
+                    Annotated = true;
+                }
+                else if (GV->getName() == "__llvm_prf_nm" && GV->getValueType()->isArrayTy())
+                {
+                    auto N = GV->getValueType()->getArrayNumElements();
+
+                    auto *S8Ty = DIB.createBasicType("char", 8, dwarf::DW_ATE_signed_char);
+
+                    auto *ConstS8Ty = DIB.createQualifiedType(dwarf::DW_TAG_const_type, S8Ty);
+
+                    auto *DebugArrayTy = DIB.createArrayType(
+                        /*Size=*/N * 8,
+                        /*AlignInBits=*/0,
+                        /*Ty=*/ConstS8Ty,
+                        /*Subscripts=*/DIB.getOrCreateArray({DIB.getOrCreateSubrange(0, N)}));
+
+                    auto *DebugGVE = DIB.createGlobalVariableExpression(
+                        /*Context=*/DebugCU,
+                        /*Name=*/GV->getName(),
+                        /*LinkageName=*/"",
+                        /*File=*/DebugFile,
+                        /*LineNo=*/0,
+                        /*Ty=*/DebugArrayTy,
+                        /*IsLocalToUnit=*/GV->hasLocalLinkage(),
+                        /*IsDefinition=*/true,
+                        /*Expr=*/nullptr,
+                        /*Decl=*/nullptr,
+                        /*TemplateParams=*/nullptr,
+                        /*AlignInBits=*/0);
+
+                    GV->addDebugInfo(DebugGVE);
+                    DebugGlobals.push_back(DebugGVE);
+
+                    Annotated = true;
+                }
+                else if (GV->getName().startswith("__profd") && GV->getValueType()->isStructTy())
+                {
+                }
+            }
+        }
+
+        errs() << "updating compile unit's globals debug info\n";
+        DebugCU->replaceGlobalVariables(MDTuple::get(M.getContext(), DebugGlobals));
+
+        DIB.finalize();
+
+        return Annotated;
+    }
+
 }
 
 //---------------------------------------------------------------------------------------------------------------------
