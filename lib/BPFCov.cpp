@@ -238,6 +238,20 @@ namespace
         return true;
     }
 
+    bool deleteFuncByName(Module &M, StringRef Name)
+    {
+        auto F = M.getFunction(Name);
+        if (!F)
+        {
+            return false;
+        }
+        errs() << "erasing " << Name << "()\n";
+        F->replaceAllUsesWith(UndefValue::get(F->getType()));
+        F->eraseFromParent();
+
+        return true;
+    }
+
 }
 
 //---------------------------------------------------------------------------------------------------------------------
