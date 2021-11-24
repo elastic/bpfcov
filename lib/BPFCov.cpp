@@ -410,10 +410,13 @@ namespace
             }
         }
 
-        errs() << "updating compile unit's globals debug info\n";
-        DebugCU->replaceGlobalVariables(MDTuple::get(M.getContext(), DebugGlobals));
+        if (Annotated)
+        {
+            errs() << "updating compile unit's globals debug info\n";
+            DebugCU->replaceGlobalVariables(MDTuple::get(M.getContext(), DebugGlobals));
 
-        DIB.finalize();
+            DIB.finalize();
+        }
 
         return Annotated;
     }
