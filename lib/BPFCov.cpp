@@ -272,16 +272,18 @@ namespace
                 {
                     if (GlobalValue *GV = dyn_cast<GlobalValue>(CE->getOperand(0)))
                     {
-                        if (!GV->getName().startswith("__llvm_profile_runtime"))
+                        auto Name = GV->getName();
+                        if (!Name.startswith("__llvm_profile_runtime") && !Name.startswith("__profd"))
                         {
                             UsedGlobals.push_back(UArray->getOperand(i));
                         }
                     }
                 }
             }
+            // TODO(leodido) > almost certainly the following if doesn't make sense for "llvm.used" array
             else if (GlobalValue *GV = dyn_cast<GlobalValue>(UArray->getOperand(i)))
             {
-                if (!GV->getName().startswith("__llvm_profile_runtime"))
+                if (!GV->getName().startswith("__llvm_profile_runtime") && !GV->getName().startswith("__profd"))
                 {
                     UsedGlobals.push_back(UArray->getOperand(i));
                 }
@@ -315,6 +317,51 @@ namespace
                 Changed = true;
             }
         }
+        return Changed;
+    }
+
+    bool convertStructs(Module &M)
+    {
+        bool Changed = false;
+
+        auto &CTX = M.getContext();
+        SmallVector<GlobalVariable *, 8> ToDelete;
+
+        for (auto gv_iter = M.global_begin(); gv_iter != M.global_end(); gv_iter++)
+        {
+            GlobalVariable *GV = &*gv_iter;
+            if (GV->hasName())
+            {
+                if (GV->getName().startswith("__profd") && GV->getValueType()->isStructTy())
+                {
+                    errs() << "converting " << GV->getName() << " struct to globals\n";
+
+                    ConstantInt *C0 = dyn_cast<ConstantInt>(GV->getInitializer()->getOperand(0));
+                    auto *GV0 = new GlobalVariable(
+                        M,
+                        /*Ty=*/GV->getValueType()->getStructElementType(0),
+                        /*isConstant=*/false,
+                        /*Linkage=*/GlobalVariable::ExternalLinkage,
+                        /*Initializer=*/ConstantInt::get(Type::getInt64Ty(CTX), C0->getSExtValue()),
+                        /*Name=*/GV->getName() + ".0",
+                        /*InsertBefore=*/GV);
+                    GV0->setDSOLocal(true);
+                    GV0->setAlignment(MaybeAlign(8));
+
+                    appendToUsed(M, GV0);
+
+                    ToDelete.push_back(GV);
+
+                    Changed = true;
+                }
+            }
+        }
+
+        for (auto *GV : ToDelete)
+        {
+            GV->eraseFromParent();
+        }
+
         return Changed;
     }
 
@@ -412,8 +459,26 @@ namespace
 
                     Annotated = true;
                 }
-                else if (GV->getName().startswith("__profd") && GV->getValueType()->isStructTy())
+                else if (GV->getName().startswith("__profd") && GV->getName().endswith(".0"))
                 {
+                    auto *DebugGVE = DIB.createGlobalVariableExpression(
+                        /*Context=*/DebugCU,
+                        /*Name=*/GV->getName(),
+                        /*LinkageName=*/"",
+                        /*File=*/DebugFile,
+                        /*LineNo=*/0,
+                        /*Ty=*/DIB.createBasicType("long long int", 64, dwarf::DW_ATE_signed),
+                        /*IsLocalToUnit=*/GV->hasLocalLinkage(),
+                        /*IsDefinition=*/true,
+                        /*Expr=*/nullptr,
+                        /*Decl=*/nullptr,
+                        /*TemplateParams=*/nullptr,
+                        /*AlignInBits=*/0);
+
+                    GV->addDebugInfo(DebugGVE);
+                    DebugGlobals.push_back(DebugGVE);
+
+                    Annotated = true;
                 }
             }
         }
@@ -463,6 +528,7 @@ bool BPFCov::runOnModule(Module &M)
     instrumented |= deleteFuncByName(M, "__llvm_profile_runtime_user");
     instrumented |= deleteGVarByName(M, "__llvm_profile_runtime");
     instrumented |= stripSectionsWithPrefix(M, "__llvm_prf");
+    instrumented |= convertStructs(M);
     instrumented |= annotateCounters(M);
 
     // for (auto &F : M)
