@@ -342,6 +342,10 @@ namespace
             {
                 if (GV->getName().startswith("__profc") && GV->getValueType()->isArrayTy())
                 {
+                    // Change to DSO local
+                    GV->setLinkage(GlobalValue::LinkageTypes::ExternalLinkage);
+                    GV->setDSOLocal(true);
+
                     auto N = GV->getValueType()->getArrayNumElements();
 
                     auto *S64Ty = DIB.createBasicType("long long int", 64, dwarf::DW_ATE_signed);
@@ -373,6 +377,10 @@ namespace
                 }
                 else if (GV->getName() == "__llvm_prf_nm" && GV->getValueType()->isArrayTy())
                 {
+                    // Change to DSO local
+                    GV->setLinkage(GlobalValue::LinkageTypes::ExternalLinkage);
+                    GV->setDSOLocal(true);
+
                     auto N = GV->getValueType()->getArrayNumElements();
 
                     auto *S8Ty = DIB.createBasicType("char", 8, dwarf::DW_ATE_signed_char);
@@ -457,10 +465,10 @@ bool BPFCov::runOnModule(Module &M)
     instrumented |= stripSectionsWithPrefix(M, "__llvm_prf");
     instrumented |= annotateCounters(M);
 
-    for (auto &F : M)
-    {
-        instrumented |= runOnFunction(F, M);
-    }
+    // for (auto &F : M)
+    // {
+    //     instrumented |= runOnFunction(F, M);
+    // }
 
     return instrumented;
 }
