@@ -273,7 +273,7 @@ namespace
                     if (GlobalValue *GV = dyn_cast<GlobalValue>(CE->getOperand(0)))
                     {
                         auto Name = GV->getName();
-                        if (!Name.startswith("__llvm_profile_runtime") && !Name.startswith("__profd") && !Name.startswith("__covrec"))
+                        if (!Name.startswith("__llvm_profile_runtime") && !Name.startswith("__profd") && !Name.startswith("__covrec") && !Name.startswith("__llvm_coverage"))
                         {
                             UsedGlobals.push_back(UArray->getOperand(i));
                         }
@@ -284,7 +284,7 @@ namespace
             else if (GlobalValue *GV = dyn_cast<GlobalValue>(UArray->getOperand(i)))
             {
                 auto Name = GV->getName();
-                if (!Name.startswith("__llvm_profile_runtime") && !Name.startswith("__profd") && !Name.startswith("__covrec"))
+                if (!Name.startswith("__llvm_profile_runtime") && !Name.startswith("__profd") && !Name.startswith("__covrec") && !Name.startswith("__llvm_coverage"))
                 {
                     UsedGlobals.push_back(UArray->getOperand(i));
                 }
