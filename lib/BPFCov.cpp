@@ -273,7 +273,7 @@ namespace
                     if (GlobalValue *GV = dyn_cast<GlobalValue>(CE->getOperand(0)))
                     {
                         auto Name = GV->getName();
-                        if (!Name.startswith("__llvm_profile_runtime") && !Name.startswith("__profd"))
+                        if (!Name.startswith("__llvm_profile_runtime") && !Name.startswith("__profd") && !Name.startswith("__covrec"))
                         {
                             UsedGlobals.push_back(UArray->getOperand(i));
                         }
@@ -283,7 +283,8 @@ namespace
             // TODO(leodido) > almost certainly the following if doesn't make sense for "llvm.used" array
             else if (GlobalValue *GV = dyn_cast<GlobalValue>(UArray->getOperand(i)))
             {
-                if (!GV->getName().startswith("__llvm_profile_runtime") && !GV->getName().startswith("__profd"))
+                auto Name = GV->getName();
+                if (!Name.startswith("__llvm_profile_runtime") && !Name.startswith("__profd") && !Name.startswith("__covrec"))
                 {
                     UsedGlobals.push_back(UArray->getOperand(i));
                 }
