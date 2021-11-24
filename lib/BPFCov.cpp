@@ -333,18 +333,30 @@ namespace
             GlobalVariable *GV = &*gv_iter;
             if (GV->hasName())
             {
-                if (GV->getName().startswith("__profd") && GV->getValueType()->isStructTy())
+                auto Name = GV->getName();
+                if (Name.startswith("__profd") && GV->getValueType()->isStructTy())
                 {
-                    errs() << "converting " << GV->getName() << " struct to globals\n";
+                    errs() << "converting " << Name << " struct to globals\n";
 
                     ConstantInt *C0 = dyn_cast<ConstantInt>(GV->getInitializer()->getOperand(0));
+                    if (!C0)
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": cast failed\n";
+                    }
+                    auto Ty = C0->getType();
+                    if (!Ty->isIntegerTy(64))
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": wrong type bandwidth\n";
+                    }
                     auto *GV0 = new GlobalVariable(
                         M,
-                        /*Ty=*/GV->getValueType()->getStructElementType(0),
+                        /*Ty=*/Ty,
                         /*isConstant=*/false,
                         /*Linkage=*/GlobalVariable::ExternalLinkage,
-                        /*Initializer=*/ConstantInt::get(Type::getInt64Ty(CTX), C0->getSExtValue()),
-                        /*Name=*/GV->getName() + ".0",
+                        /*Initializer=*/ConstantInt::get(Ty, C0->getSExtValue()),
+                        /*Name=*/Name + ".0",
                         /*InsertBefore=*/GV);
                     GV0->setDSOLocal(true);
                     GV0->setAlignment(MaybeAlign(8));
@@ -354,6 +366,89 @@ namespace
                     ToDelete.push_back(GV);
 
                     Changed = true;
+                }
+                else if (Name.startswith("__covrec") && GV->getValueType()->isStructTy())
+                {
+                    // errs() << "converting " << Name << " struct to globals\n";
+                    // TODO(leodido)
+                }
+                else if (Name.startswith("__llvm_coverage") && GV->getValueType()->isStructTy())
+                {
+                    errs() << "converting " << Name << " struct to globals\n";
+
+                    ConstantStruct *C0 = dyn_cast<ConstantStruct>(GV->getInitializer()->getOperand(0));
+                    if (!C0)
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": cast failed\n";
+                    }
+                    auto Ty0 = C0->getType();
+                    if (!Ty0->isStructTy())
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": wrong type\n";
+                    }
+
+                    SmallVector<Constant *, 8> Vals;
+                    for (unsigned int i = 0; i < C0->getNumOperands(); i++)
+                    {
+                        ConstantInt *C = dyn_cast<ConstantInt>(C0->getOperand(i));
+                        if (!C)
+                        {
+                            // TODO(leodido) > bail out
+                            errs() << Name << ": cast failed\n";
+                        }
+                        if (!C->getType()->isIntegerTy(32))
+                        {
+                            // TODO(leodido) > bail out
+                            errs() << Name << ": wrong type\n";
+                        }
+                        Vals.push_back(C);
+                    }
+
+                    ArrayType *ATy = ArrayType::get(Type::getInt32Ty(CTX), Vals.size());
+
+                    auto *GV0 = new GlobalVariable(
+                        M,
+                        /*Ty=*/ATy,
+                        /*isConstant=*/true,
+                        /*Linkage=*/GlobalVariable::ExternalLinkage,
+                        /*Initializer=*/ConstantArray::get(ATy, Vals),
+                        /*Name=*/Name + ".0",
+                        /*InsertBefore=*/GV);
+                    GV0->setDSOLocal(true);
+
+                    Changed = true;
+
+                    appendToUsed(M, GV0);
+
+                    ConstantDataArray *C1 = dyn_cast<ConstantDataArray>(GV->getInitializer()->getOperand(1));
+                    if (!C1)
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": cast failed\n";
+                    }
+                    auto Ty1 = C1->getType();
+                    if (!Ty1->isArrayTy())
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": wrong type\n";
+                    }
+
+                    auto *GV1 = new GlobalVariable(
+                        M,
+                        /*Ty=*/Ty1,
+                        /*isConstant=*/true,
+                        /*Linkage=*/GlobalVariable::ExternalLinkage,
+                        /*Initializer=*/ConstantDataArray::getString(CTX, C1->getRawDataValues(), false),
+                        /*Name=*/Name + ".1",
+                        /*InsertBefore=*/GV);
+                    GV1->setDSOLocal(true);
+                    GV1->setAlignment(MaybeAlign(1));
+
+                    appendToUsed(M, GV1);
+
+                    ToDelete.push_back(GV);
                 }
             }
         }
