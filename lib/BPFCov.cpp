@@ -396,8 +396,6 @@ namespace
 
                     appendToUsed(M, GV0);
 
-                    // ToDelete.push_back(GV); // TODO(leodido)
-
                     Changed = true;
 
                     ConstantDataArray *C4 = dyn_cast<ConstantDataArray>(GV->getInitializer()->getOperand(4));
@@ -426,7 +424,7 @@ namespace
 
                     appendToUsed(M, GV4);
 
-                    // ToDelete.push_back(GV); // TODO(leodido)
+                    ToDelete.push_back(GV);
                 }
                 else if (Name.startswith("__llvm_coverage") && GV->getValueType()->isStructTy())
                 {
@@ -632,6 +630,44 @@ namespace
 
                     Annotated = true;
                 }
+                else if (GV->getName().startswith("__covrec"))
+                {
+                    DIType *GVTy;
+                    if (GV->getName().endswith(".0"))
+                    {
+                        auto *Ty = DIB.createBasicType("long long int", 64, dwarf::DW_ATE_signed);
+                        GVTy = DIB.createQualifiedType(dwarf::DW_TAG_const_type, Ty);
+                    }
+                    if (GV->getName().endswith(".4"))
+                    {
+                        auto *Ty = DIB.createBasicType("char", 8, dwarf::DW_ATE_signed_char);
+                        auto N = GV->getValueType()->getArrayNumElements();
+                        GVTy = DIB.createArrayType(
+                            /*Size=*/N * 8,
+                            /*AlignInBits=*/0,
+                            /*Ty=*/DIB.createQualifiedType(dwarf::DW_TAG_const_type, Ty),
+                            /*Subscripts=*/DIB.getOrCreateArray({DIB.getOrCreateSubrange(0, N)}));
+                    }
+
+                    auto *DebugGVE = DIB.createGlobalVariableExpression(
+                        /*Context=*/DebugCU,
+                        /*Name=*/GV->getName(),
+                        /*LinkageName=*/"",
+                        /*File=*/DebugFile,
+                        /*LineNo=*/0,
+                        /*Ty=*/GVTy,
+                        /*IsLocalToUnit=*/GV->hasLocalLinkage(),
+                        /*IsDefinition=*/true,
+                        /*Expr=*/nullptr,
+                        /*Decl=*/nullptr,
+                        /*TemplateParams=*/nullptr,
+                        /*AlignInBits=*/0);
+
+                    GV->addDebugInfo(DebugGVE);
+                    DebugGlobals.push_back(DebugGVE);
+
+                    Annotated = true;
+                }
                 else if (GV->getName().startswith("__llvm_coverage"))
                 {
                     auto N = GV->getValueType()->getArrayNumElements();
@@ -643,7 +679,7 @@ namespace
                         Ty = DIB.createBasicType("int", 32, dwarf::DW_ATE_signed);
                         Size *= 32;
                     }
-                    else
+                    if (GV->getName().endswith(".1"))
                     {
                         Ty = DIB.createBasicType("char", 8, dwarf::DW_ATE_signed_char);
                         Size *= 8;
