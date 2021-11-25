@@ -576,6 +576,50 @@ namespace
 
                     Annotated = true;
                 }
+                else if (GV->getName().startswith("__llvm_coverage"))
+                {
+                    auto N = GV->getValueType()->getArrayNumElements();
+
+                    auto Size = N;
+                    DIBasicType *Ty;
+                    if (GV->getName().endswith(".0"))
+                    {
+                        Ty = DIB.createBasicType("int", 32, dwarf::DW_ATE_signed);
+                        Size *= 32;
+                    }
+                    else
+                    {
+                        Ty = DIB.createBasicType("char", 8, dwarf::DW_ATE_signed_char);
+                        Size *= 8;
+                    }
+
+                    auto *ConstTy = DIB.createQualifiedType(dwarf::DW_TAG_const_type, Ty);
+
+                    auto *DebugArrayTy = DIB.createArrayType(
+                        /*Size=*/Size,
+                        /*AlignInBits=*/0,
+                        /*Ty=*/ConstTy,
+                        /*Subscripts=*/DIB.getOrCreateArray({DIB.getOrCreateSubrange(0, N)}));
+
+                    auto *DebugGVE = DIB.createGlobalVariableExpression(
+                        /*Context=*/DebugCU,
+                        /*Name=*/GV->getName(),
+                        /*LinkageName=*/"",
+                        /*File=*/DebugFile,
+                        /*LineNo=*/0,
+                        /*Ty=*/DebugArrayTy,
+                        /*IsLocalToUnit=*/GV->hasLocalLinkage(),
+                        /*IsDefinition=*/true,
+                        /*Expr=*/nullptr,
+                        /*Decl=*/nullptr,
+                        /*TemplateParams=*/nullptr,
+                        /*AlignInBits=*/0);
+
+                    GV->addDebugInfo(DebugGVE);
+                    DebugGlobals.push_back(DebugGVE);
+
+                    Annotated = true;
+                }
             }
         }
 
