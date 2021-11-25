@@ -12,8 +12,6 @@ struct BPFCov : public llvm::PassInfoMixin<BPFCov>
     static bool isRequired() { return true; }
 
     virtual bool runOnModule(llvm::Module &M);
-    virtual bool runOnFunction(llvm::Function &F, llvm::Module &M);
-    // virtual bool runOnBasicBlock(BasicBlock &BB, Module &M);
 };
 
 //------------------------------------------------------------------------------
