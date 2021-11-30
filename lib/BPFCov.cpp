@@ -12,14 +12,16 @@
 //
 // USAGE:
 //    1. Legacy LLVM Pass Manager
-//      opt --load libBPFCov.{so,dylib} --bpf-cov <input-llvm-file>
+//        opt --load libBPFCov.{so,dylib} [] --bpf-cov <input>
 //
 //    2. New LLVM Pass Manager
-//      opt --load-pass-plugin libBPFCov.{so,dylib} [--stats] --passes='bpf-cov' <input-llvm-file>
+//        opt --load-pass-plugin libBPFCov.{so,dylib} [--stats] --passes='bpf-cov' <input>
 //
-//      OR
+//        OR
 //
-//      opt --load-pass-plugin libBPFCov.{so,dylib} [--stats] --passes='default<O2>' <input-llvm-file>
+//        opt --load-pass-plugin libBPFCov.{so,dylib} [--stats] --passes='default<O2>' <input>
+//
+//        NOTICE: CLI options not available when using the new Pass Manager.
 //
 // LICENSE:
 //    ...
@@ -36,6 +38,7 @@
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
+#include "llvm/Support/CommandLine.h"
 
 static constexpr char PassArg[] = "bpf-cov";
 static constexpr char PassName[] = "BPF Coverage Pass";
@@ -45,12 +48,20 @@ static constexpr char PluginName[] = "BPFCov";
 
 // NOTE > LLVM_DEBUG requires a LLVM built with NDEBUG unset
 // NOTE > Then use with opt -debug
-// TODO > Create unnamed namespace for private functions
 
 using namespace llvm;
 
-std::string Prefix = "bpfcov_";
-std::string Suffix = "_map";
+//---------------------------------------------------------------------------------------------------------------------
+// CLI options
+//---------------------------------------------------------------------------------------------------------------------
+
+// This cause the resulting BPF ELF to be readable by llvm-cov for coverage output,
+// but it does not output a valid BPF program
+static cl::opt<bool>
+    StripInitializersOnly(
+        "strip-initializers-only",
+        cl::desc("Stop the pass after the initializers have been removed"),
+        cl::init(false));
 
 //---------------------------------------------------------------------------------------------------------------------
 // Utility functions
@@ -113,7 +124,7 @@ namespace
                     }
                 }
             }
-            // TODO(leodido) > almost certainly the following if doesn't make sense for "llvm.used" array
+            // TODO(leodido) > almost certainly the following doesn't make sense for "llvm.used" array
             else if (GlobalValue *GV = dyn_cast<GlobalValue>(UArray->getOperand(i)))
             {
                 auto Name = GV->getName();
@@ -584,57 +595,24 @@ bool BPFCov::runOnModule(Module &M)
         return instrumented;
     }
 
-    // This sequence of calls is not random at all
+    // This sequence is not random at all
     instrumented |= deleteGVarByName(M, "llvm.global_ctors");
     instrumented |= deleteFuncByName(M, "__llvm_profile_init");
     instrumented |= deleteFuncByName(M, "__llvm_profile_register_function");
     instrumented |= deleteFuncByName(M, "__llvm_profile_register_names_function");
-    instrumented |= fixupUsedGlobals(M);
     instrumented |= deleteFuncByName(M, "__llvm_profile_runtime_user");
     instrumented |= deleteGVarByName(M, "__llvm_profile_runtime");
+    instrumented |= fixupUsedGlobals(M);
+    // Stop here to avoid rewriting the profiling and coverage structs
+    if (StripInitializersOnly)
+    {
+        return instrumented;
+    }
     instrumented |= stripSectionsWithPrefix(M, "__llvm_prf");
     instrumented |= convertStructs(M);
     instrumented |= annotateCounters(M);
 
     return instrumented;
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-// New PM / Registration
-//---------------------------------------------------------------------------------------------------------------------
-PassPluginLibraryInfo getBPFCovPluginInfo()
-{
-    return {LLVM_PLUGIN_API_VERSION, PluginName, LLVM_VERSION_STRING,
-            [](PassBuilder &PB)
-            {
-                // #1 Regiser "opt -passes=bpf-cov"
-                PB.registerPipelineParsingCallback(
-                    [&](StringRef Name, ModulePassManager &MPM, ArrayRef<PassBuilder::PipelineElement>)
-                    {
-                        if (Name.equals(PassArg))
-                        {
-                            MPM.addPass(BPFCov());
-                            return true;
-                        }
-                        return false;
-                    });
-                // #2 Register for running automatically at "default<O2>"
-                PB.registerPipelineStartEPCallback(
-                    [&](ModulePassManager &MPM, ArrayRef<PassBuilder::OptimizationLevel> OLevels)
-                    {
-                        if (OLevels.size() == 1 &&
-                            OLevels[0] == PassBuilder::OptimizationLevel::O2)
-                        {
-                            MPM.addPass(BPFCov());
-                        }
-                    });
-            }};
-}
-
-extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
-llvmGetPassPluginInfo()
-{
-    return getBPFCovPluginInfo();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -667,6 +645,45 @@ void LegacyBPFCov::getAnalysisUsage(AnalysisUsage &AU) const
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+// New PM / Registration
+//---------------------------------------------------------------------------------------------------------------------
+PassPluginLibraryInfo getBPFCovPluginInfo()
+{
+    return {LLVM_PLUGIN_API_VERSION, PluginName, LLVM_VERSION_STRING,
+            [](PassBuilder &PB)
+            {
+                // #1 Regiser "opt -passes=bpf-cov"
+                PB.registerPipelineParsingCallback(
+                    [&](StringRef Name, ModulePassManager &MPM, ArrayRef<PassBuilder::PipelineElement>)
+                    {
+                        if (Name.equals(PassArg))
+                        {
+                            errs() << "value here: " << (StripInitializersOnly.getValue() ? "true" : "false") << "\n";
+                            MPM.addPass(BPFCov());
+                            return true;
+                        }
+                        return false;
+                    });
+                // #2 Register for running at "default<O2>" // TODO > double-check
+                PB.registerPipelineStartEPCallback(
+                    [&](ModulePassManager &MPM, ArrayRef<PassBuilder::OptimizationLevel> OLevels)
+                    {
+                        if (OLevels.size() == 1 &&
+                            OLevels[0] == PassBuilder::OptimizationLevel::O2)
+                        {
+                            MPM.addPass(BPFCov());
+                        }
+                    });
+            }};
+}
+
+extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
+llvmGetPassPluginInfo()
+{
+    return getBPFCovPluginInfo();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 // Legacy PM / Registration
 //---------------------------------------------------------------------------------------------------------------------
 
@@ -679,5 +696,6 @@ static RegisterStandardPasses RegisterBPFCov(
     PassManagerBuilder::EP_EarlyAsPossible,
     [](const PassManagerBuilder &, legacy::PassManagerBase &PM)
     {
+        errs() << "legacy: value here: " << (StripInitializersOnly.getValue() ? "true" : "false") << "\n";
         PM.add(new LegacyBPFCov());
     });
