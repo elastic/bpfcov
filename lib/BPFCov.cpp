@@ -149,7 +149,7 @@ namespace
         return false;
     }
 
-    bool stripSectionsWithPrefix(Module &M, StringRef Prefix)
+    bool swapSectionWithPrefix(Module &M, StringRef Prefix, StringRef New)
     {
         bool Changed = false;
         for (auto gv_iter = M.global_begin(); gv_iter != M.global_end(); gv_iter++)
@@ -158,7 +158,7 @@ namespace
             if (GV->hasSection() && GV->getSection().startswith(Prefix))
             {
                 errs() << "stripping " << GV->getName() << " section\n";
-                GV->setSection("");
+                GV->setSection(New);
                 Changed = true;
             }
         }
@@ -608,7 +608,8 @@ bool BPFCov::runOnModule(Module &M)
     {
         return instrumented;
     }
-    instrumented |= stripSectionsWithPrefix(M, "__llvm_prf");
+    instrumented |= swapSectionWithPrefix(M, "__llvm_prf_cnts", ".data.cnts");
+    instrumented |= swapSectionWithPrefix(M, "__llvm_prf", "");
     instrumented |= convertStructs(M);
     instrumented |= annotateCounters(M);
 
