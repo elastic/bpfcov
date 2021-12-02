@@ -171,6 +171,7 @@ namespace
 
         auto &CTX = M.getContext();
         SmallVector<GlobalVariable *, 8> ToDelete;
+        auto CountersSizeAcc = 0;
 
         for (auto gv_iter = M.global_begin(); gv_iter != M.global_end(); gv_iter++)
         {
@@ -200,7 +201,7 @@ namespace
                         /*Ty=*/Ty,
                         /*isConstant=*/true,
                         /*Linkage=*/GlobalVariable::ExternalLinkage,
-                        /*Initializer=*/ConstantInt::get(Ty, C0->getSExtValue()),
+                        /*Initializer=*/ConstantInt::get(Ty, C0->getSExtValue(), true),
                         /*Name=*/Name + ".0",
                         /*InsertBefore=*/GV);
                     GV0->setDSOLocal(true);
@@ -229,7 +230,7 @@ namespace
                         /*Ty=*/Ty1,
                         /*isConstant=*/true,
                         /*Linkage=*/GlobalVariable::ExternalLinkage,
-                        /*Initializer=*/ConstantInt::get(Ty1, C1->getSExtValue()),
+                        /*Initializer=*/ConstantInt::get(Ty1, C1->getSExtValue(), true),
                         /*Name=*/Name + ".1",
                         /*InsertBefore=*/GV);
                     GV1->setDSOLocal(true);
@@ -238,7 +239,7 @@ namespace
 
                     appendToUsed(M, GV1);
 
-                    // Translate the number of counters (that this data refers to) to a global scalar
+                    // Get the number of counters for current __profd_*
                     ConstantInt *C5 = dyn_cast<ConstantInt>(GV->getInitializer()->getOperand(5));
                     if (!C5)
                     {
@@ -251,12 +252,39 @@ namespace
                         // TODO(leodido) > bail out
                         errs() << Name << ": wrong type bandwidth\n";
                     }
+
+                    auto NumCounters = C5->getSExtValue();
+
+                    // Translate the address of the counter to a global scalar containing the relative offset
+                    auto *GV2 = new GlobalVariable(
+                        M,
+                        /*Ty=*/Ty1,
+                        /*isConstant=*/true,
+                        /*Linkage=*/GlobalVariable::ExternalLinkage,
+                        /*Initializer=*/ConstantInt::get(Ty1, CountersSizeAcc, true),
+                        /*Name=*/Name + ".2",
+                        /*InsertBefore=*/GV);
+                    GV2->setDSOLocal(true);
+                    GV2->setAlignment(MaybeAlign(8));
+                    GV2->setSection("__llvm_prf_data");
+                    appendToUsed(M, GV2);
+
+                    // Increment the counter offset for the next __profd_*
+                    CountersSizeAcc += NumCounters * 8;
+
+                    // Translate the number of counters (that this data refers to) to a global scalar
+
+                    // NOTE > Fitting a i32 in a i64 here is deliberate
+                    // NOTE > it is correct only when the 6th field (array of 2 short) is empty
+                    // TODO > otherwise should initialize filling the last 4 bytes with the value of the 6th field
+                    auto NumCountersC = ConstantInt::get(Ty1, NumCounters, true);
+
                     auto *GV5 = new GlobalVariable(
                         M,
                         /*Ty=*/Ty1, // NOTE > this is deliberate
                         /*isConstant=*/true,
                         /*Linkage=*/GlobalVariable::ExternalLinkage,
-                        /*Initializer=*/ConstantInt::get(Ty1, C5->getSExtValue()), // NOTE > this is deliberate
+                        /*Initializer=*/NumCountersC,
                         /*Name=*/Name + ".5",
                         /*InsertBefore=*/GV);
                     GV5->setDSOLocal(true);
