@@ -182,6 +182,7 @@ namespace
                 {
                     errs() << "converting " << Name << " struct to globals\n";
 
+                    // Translate the function ID to a single global
                     ConstantInt *C0 = dyn_cast<ConstantInt>(GV->getInitializer()->getOperand(0));
                     if (!C0)
                     {
@@ -204,12 +205,20 @@ namespace
                         /*InsertBefore=*/GV);
                     GV0->setDSOLocal(true);
                     GV0->setAlignment(MaybeAlign(8));
+                    GV0->setConstant(true);
+                    GV0->setSection("__llvm_prf_data");
 
                     appendToUsed(M, GV0);
 
-                    ToDelete.push_back(GV);
-
                     Changed = true;
+
+                    // TODO > get hash (field #2 of the struct, long long int)
+                    // Translate the function hash to a single global
+
+                    // TODO > get number of counters (field #6 of the struct, int)
+                    // Translate the number of counters (that this data refers to) to a single global
+
+                    ToDelete.push_back(GV);
                 }
                 else if (Name.startswith("__covrec") && GV->getValueType()->isStructTy())
                 {
@@ -608,11 +617,12 @@ bool BPFCov::runOnModule(Module &M)
     {
         return instrumented;
     }
-    instrumented |= swapSectionWithPrefix(M, "__llvm_prf_cnts", ".data.__llvm_prf_cnts");
-    instrumented |= swapSectionWithPrefix(M, "__llvm_prf_names", ".rodata.__llvm_prf_names");
-    instrumented |= swapSectionWithPrefix(M, "__llvm_prf", "");
+    instrumented |= swapSectionWithPrefix(M, "__llvm_prf_cnts", ".data.profc");
+    instrumented |= swapSectionWithPrefix(M, "__llvm_prf_names", ".rodata.profn");
     instrumented |= convertStructs(M);
     instrumented |= annotateCounters(M);
+    instrumented |= swapSectionWithPrefix(M, "__llvm_prf_data", ".rodata.profd");
+    instrumented |= swapSectionWithPrefix(M, "__llvm_prf", "");
 
     return instrumented;
 }
