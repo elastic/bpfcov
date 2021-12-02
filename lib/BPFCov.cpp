@@ -198,22 +198,45 @@ namespace
                     auto *GV0 = new GlobalVariable(
                         M,
                         /*Ty=*/Ty,
-                        /*isConstant=*/false,
+                        /*isConstant=*/true,
                         /*Linkage=*/GlobalVariable::ExternalLinkage,
                         /*Initializer=*/ConstantInt::get(Ty, C0->getSExtValue()),
                         /*Name=*/Name + ".0",
                         /*InsertBefore=*/GV);
                     GV0->setDSOLocal(true);
                     GV0->setAlignment(MaybeAlign(8));
-                    GV0->setConstant(true);
                     GV0->setSection("__llvm_prf_data");
 
                     appendToUsed(M, GV0);
 
                     Changed = true;
 
-                    // TODO > get hash (field #2 of the struct, long long int)
                     // Translate the function hash to a single global
+                    ConstantInt *C1 = dyn_cast<ConstantInt>(GV->getInitializer()->getOperand(1));
+                    if (!C1)
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": cast failed\n";
+                    }
+                    auto Ty1 = C1->getType();
+                    if (!Ty1->isIntegerTy(4))
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": wrong type bandwidth\n";
+                    }
+                    auto *GV1 = new GlobalVariable(
+                        M,
+                        /*Ty=*/Ty1,
+                        /*isConstant=*/true,
+                        /*Linkage=*/GlobalVariable::ExternalLinkage,
+                        /*Initializer=*/ConstantInt::get(Ty, C1->getSExtValue()),
+                        /*Name=*/Name + ".1",
+                        /*InsertBefore=*/GV);
+                    GV1->setDSOLocal(true);
+                    GV1->setAlignment(MaybeAlign(8));
+                    GV1->setSection("__llvm_prf_data");
+
+                    appendToUsed(M, GV1);
 
                     // TODO > get number of counters (field #6 of the struct, int)
                     // Translate the number of counters (that this data refers to) to a single global
@@ -462,26 +485,29 @@ namespace
 
                     Annotated = true;
                 }
-                else if (GV->getName().startswith("__profd") && GV->getName().endswith(".0"))
+                else if (GV->getName().startswith("__profd"))
                 {
-                    auto *DebugGVE = DIB.createGlobalVariableExpression(
-                        /*Context=*/DebugCU,
-                        /*Name=*/GV->getName(),
-                        /*LinkageName=*/"",
-                        /*File=*/DebugFile,
-                        /*LineNo=*/0,
-                        /*Ty=*/DIB.createBasicType("long long int", 64, dwarf::DW_ATE_signed),
-                        /*IsLocalToUnit=*/GV->hasLocalLinkage(),
-                        /*IsDefinition=*/true,
-                        /*Expr=*/nullptr,
-                        /*Decl=*/nullptr,
-                        /*TemplateParams=*/nullptr,
-                        /*AlignInBits=*/0);
+                    if (GV->getName().endswith(".0") || GV->getName().endswith(".1"))
+                    {
+                        auto *DebugGVE = DIB.createGlobalVariableExpression(
+                            /*Context=*/DebugCU,
+                            /*Name=*/GV->getName(),
+                            /*LinkageName=*/"",
+                            /*File=*/DebugFile,
+                            /*LineNo=*/0,
+                            /*Ty=*/DIB.createBasicType("long long int", 64, dwarf::DW_ATE_signed),
+                            /*IsLocalToUnit=*/GV->hasLocalLinkage(),
+                            /*IsDefinition=*/true,
+                            /*Expr=*/nullptr,
+                            /*Decl=*/nullptr,
+                            /*TemplateParams=*/nullptr,
+                            /*AlignInBits=*/0);
 
-                    GV->addDebugInfo(DebugGVE);
-                    DebugGlobals.push_back(DebugGVE);
+                        GV->addDebugInfo(DebugGVE);
+                        DebugGlobals.push_back(DebugGVE);
 
-                    Annotated = true;
+                        Annotated = true;
+                    }
                 }
                 else if (GV->getName().startswith("__covrec"))
                 {
