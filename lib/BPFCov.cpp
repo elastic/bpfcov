@@ -182,7 +182,7 @@ namespace
                 {
                     errs() << "converting " << Name << " struct to globals\n";
 
-                    // Translate the function ID to a single global
+                    // Translate the function ID to a global scalar
                     ConstantInt *C0 = dyn_cast<ConstantInt>(GV->getInitializer()->getOperand(0));
                     if (!C0)
                     {
@@ -211,7 +211,7 @@ namespace
 
                     Changed = true;
 
-                    // Translate the function hash to a single global
+                    // Translate the function hash to a global scalar
                     ConstantInt *C1 = dyn_cast<ConstantInt>(GV->getInitializer()->getOperand(1));
                     if (!C1)
                     {
@@ -219,7 +219,7 @@ namespace
                         errs() << Name << ": cast failed\n";
                     }
                     auto Ty1 = C1->getType();
-                    if (!Ty1->isIntegerTy(4))
+                    if (!Ty1->isIntegerTy(64))
                     {
                         // TODO(leodido) > bail out
                         errs() << Name << ": wrong type bandwidth\n";
@@ -229,7 +229,7 @@ namespace
                         /*Ty=*/Ty1,
                         /*isConstant=*/true,
                         /*Linkage=*/GlobalVariable::ExternalLinkage,
-                        /*Initializer=*/ConstantInt::get(Ty, C1->getSExtValue()),
+                        /*Initializer=*/ConstantInt::get(Ty1, C1->getSExtValue()),
                         /*Name=*/Name + ".1",
                         /*InsertBefore=*/GV);
                     GV1->setDSOLocal(true);
@@ -238,8 +238,32 @@ namespace
 
                     appendToUsed(M, GV1);
 
-                    // TODO > get number of counters (field #6 of the struct, int)
-                    // Translate the number of counters (that this data refers to) to a single global
+                    // Translate the number of counters (that this data refers to) to a global scalar
+                    ConstantInt *C5 = dyn_cast<ConstantInt>(GV->getInitializer()->getOperand(5));
+                    if (!C5)
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": cast failed\n";
+                    }
+                    auto Ty5 = C5->getType();
+                    if (!Ty5->isIntegerTy(32))
+                    {
+                        // TODO(leodido) > bail out
+                        errs() << Name << ": wrong type bandwidth\n";
+                    }
+                    auto *GV5 = new GlobalVariable(
+                        M,
+                        /*Ty=*/Ty1, // NOTE > this is deliberate
+                        /*isConstant=*/true,
+                        /*Linkage=*/GlobalVariable::ExternalLinkage,
+                        /*Initializer=*/ConstantInt::get(Ty1, C5->getSExtValue()), // NOTE > this is deliberate
+                        /*Name=*/Name + ".5",
+                        /*InsertBefore=*/GV);
+                    GV5->setDSOLocal(true);
+                    GV5->setAlignment(MaybeAlign(8));
+                    GV5->setSection("__llvm_prf_data");
+
+                    appendToUsed(M, GV5);
 
                     ToDelete.push_back(GV);
                 }
@@ -487,7 +511,7 @@ namespace
                 }
                 else if (GV->getName().startswith("__profd"))
                 {
-                    if (GV->getName().endswith(".0") || GV->getName().endswith(".1"))
+                    if (GV->getName().endswith(".0") || GV->getName().endswith(".1") || GV->getName().endswith(".5"))
                     {
                         auto *DebugGVE = DIB.createGlobalVariableExpression(
                             /*Context=*/DebugCU,
