@@ -157,7 +157,7 @@ namespace
             GlobalVariable *GV = &*gv_iter;
             if (GV->hasSection() && GV->getSection().startswith(Prefix))
             {
-                errs() << "stripping " << GV->getName() << " section\n";
+                errs() << "swapping " << GV->getName() << " section with " << New << " \n";
                 GV->setSection(New);
                 Changed = true;
             }
@@ -608,7 +608,8 @@ bool BPFCov::runOnModule(Module &M)
     {
         return instrumented;
     }
-    instrumented |= swapSectionWithPrefix(M, "__llvm_prf_cnts", ".data.cnts");
+    instrumented |= swapSectionWithPrefix(M, "__llvm_prf_cnts", ".data.__llvm_prf_cnts");
+    instrumented |= swapSectionWithPrefix(M, "__llvm_prf_names", ".rodata.__llvm_prf_names");
     instrumented |= swapSectionWithPrefix(M, "__llvm_prf", "");
     instrumented |= convertStructs(M);
     instrumented |= annotateCounters(M);
