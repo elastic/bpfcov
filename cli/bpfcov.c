@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 /* C standard library */
 #include <errno.h>
 #include <stdio.h>
@@ -107,6 +109,6 @@ int main(int argc, char **argv)
         long result = regs.rax;
         fprintf(logfile, " = %ld\n", result);
 
-        
+
     }
 }
