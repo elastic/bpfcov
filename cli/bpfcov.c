@@ -18,6 +18,7 @@
 #include <bpf/bpf.h>
 
 static FILE *logfile;
+const char *path_root;
 
 #define FATAL(...)                               \
     do                                           \
@@ -39,10 +40,16 @@ static inline int sys_pidfd_open(pid_t pid, unsigned int flags)
 
 int main(int argc, char **argv)
 {
-    logfile = stdout;
+    /* Defaults */
+    logfile = stdout;          // TODO(leodido) > make configurable
+    path_root = "/sys/fs/bpf"; // TODO(leodido) > make configurable
 
+    /* Pre-flight checks */
     if (argc <= 1)
         FATAL("too few arguments: %d", argc);
+    // TODO(leodido) > check bpffs is mounted
+
+    const char *target = basename(argv[1]);
 
     pid_t pid = fork();
     switch (pid)
@@ -108,7 +115,5 @@ int main(int argc, char **argv)
         /* Print system call result */
         long result = regs.rax;
         fprintf(logfile, " = %ld\n", result);
-
-
     }
 }
