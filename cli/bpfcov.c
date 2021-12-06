@@ -1,5 +1,11 @@
 #define _GNU_SOURCE
 
+#ifdef NDEBUG
+#define DEBUG 0
+#else
+#define DEBUG 1
+#endif
+
 /* C standard library */
 #include <errno.h>
 #include <stdio.h>
@@ -28,6 +34,13 @@ const char *path_root;
         exit(EXIT_FAILURE);                      \
     } while (0)
 
+#define PRINT(fmt, ...)                                    \
+    do                                                     \
+    {                                                      \
+        if (DEBUG)                                         \
+            fprintf(logfile, "bpfcov: " fmt, __VA_ARGS__); \
+    } while (0)
+
 static inline int sys_pidfd_getfd(int pidfd, int fd, int flags)
 {
     return syscall(__NR_pidfd_getfd, pidfd, fd, flags);
@@ -54,9 +67,9 @@ int main(int argc, char **argv)
     pid_t pid = fork();
     switch (pid)
     {
-    case -1: /* error */
+    case -1: /* Error */
         FATAL("%s", strerror(errno));
-    case 0: /* child */
+    case 0: /* Child */
         if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) < 0)
         {
             FATAL("%s", strerror(errno));
@@ -65,7 +78,7 @@ int main(int argc, char **argv)
         FATAL("%s", strerror(errno));
     }
 
-    /* parent */
+    /* Parent */
     waitpid(pid, 0, 0); // sync with PTRACE_TRACEME
     ptrace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_EXITKILL);
 
@@ -87,10 +100,10 @@ int main(int argc, char **argv)
         const unsigned int command = regs.rdi;
 
         /* Print a representation of the system call */
-        fprintf(logfile, "%d(%d, %ld, %ld, %ld, %ld, %ld)",
-                syscall,
-                command, (long)regs.rsi, (long)regs.rdx,
-                (long)regs.r10, (long)regs.r8, (long)regs.r9);
+        PRINT("%d(%d, %ld, %ld, %ld, %ld, %ld)",
+              syscall,
+              command, (long)regs.rsi, (long)regs.rdx,
+              (long)regs.r10, (long)regs.r8, (long)regs.r9);
 
         if (syscall == SYS_bpf && command == BPF_MAP_CREATE)
         {
@@ -106,14 +119,14 @@ int main(int argc, char **argv)
         /* Get system call result */
         if (ptrace(PTRACE_GETREGS, pid, 0, &regs) == -1)
         {
-            fprintf(logfile, " = ?\n");
+            PRINT("%s\n", " = ?");
             if (errno == ESRCH)
-                exit(regs.rdi); // system call was _exit(2) or similar
+                exit(regs.rdi); // _exit(2) or similar
             FATAL("%s", strerror(errno));
         }
 
         /* Print system call result */
         long result = regs.rax;
-        fprintf(logfile, " = %ld\n", result);
+        PRINT(" = %ld\n", result);
     }
 }
