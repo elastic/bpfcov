@@ -46,13 +46,13 @@ const char *path_root;
     } while (0)
 
 static void replace_with(char *s, const char what, const char with);
-int ends_with(const char *str, const char *suf);
+int make_pin_path(const char *root, const char *prog_name, const char *map_name, char **pin_path);
 
 int main(int argc, char **argv)
 {
     /* Defaults */
     logfile = stdout;              // TODO(leodido) > make configurable
-    path_root = "/sys/fs/bpf/cov"; // TODO(leodido) > make configurable + sanitize (remove last slash)
+    path_root = "/sys/fs/bpf/cov"; // TODO(leodido) > make configurable + sanitize (remove last slash and dots)
 
     /* Pre-flight checks */
     if (argc <= 1)
@@ -128,7 +128,7 @@ int main(int argc, char **argv)
         /* Get system call result */
         if (ptrace(PTRACE_GETREGS, pid, 0, &regs) == -1)
         {
-            PRINT("%s\n", " = ?");
+            fprintf(logfile, "%s\n", " = ?");
             if (errno == ESRCH)
             {
                 exit(regs.rdi); // _exit(2) or similar
@@ -148,7 +148,7 @@ int main(int argc, char **argv)
             {
                 continue;
             }
-            int curfd = syscall(__NR_pidfd_getfd, pidfd, result, 0);
+            int curfd = syscall(SYS_pidfd_getfd, pidfd, result, 0);
             if (curfd < 0)
             {
                 continue;
@@ -158,79 +158,37 @@ int main(int argc, char **argv)
             memset(&map_info, 0, sizeof(map_info));
             unsigned int len = sizeof(map_info);
 
-            int err = bpf_obj_get_info_by_fd(curfd, &map_info, &len);
+            int err;
+            err = bpf_obj_get_info_by_fd(curfd, &map_info, &len);
             if (!err && strlen(map_info.name) > 0)
             {
-                if (ends_with(map_info.name, ".profc"))
+                const char *sep = ".";
+                strtok(map_info.name, sep);
+                char *suffix = strtok(NULL, sep);
+
+                if (strncmp(suffix, "profc", 5) == 0 || strncmp(suffix, "profd", 5) == 0 || strncmp(suffix, "profn", 5) == 0)
                 {
-                    char dir[PATH_MAX];
-                    int dirlen = snprintf(dir, PATH_MAX, "%s/%s", path_root, target);
-                    if (dirlen < 0)
+                    char *pin_path;
+                    if (make_pin_path(path_root, target, suffix, &pin_path))
                     {
-                        FATAL("counters map: pin directory too short");
-                    }
-                    else if (dirlen >= PATH_MAX)
-                    {
-                        FATAL("counters map: pin directory too long");
-                    }
+                        if (access(pin_path, F_OK) == 0)
+                        {
+                            PRINT("pin path already exists: %s\n", pin_path);
+                            // TODO(leodido) > make this behavior configurable: ignore, delete and pin again, error out
+                            continue;
+                        }
 
-                    char *dir_path = strdup(dir);
-                    replace_with(dir_path, '.', '_');
-
-                    if (mkdir(dir_path, 0700) && errno != EEXIST)
-                    {
-                        FATAL("counters map: cannot create pin path: %s", dir_path);
-                    }
-
-                    struct statfs stats;
-                    if (statfs(dir_path, &stats))
-                    {
-                        FATAL("counters map: cannot get pin directory filesystem statistics: %s", dir_path);
-                    }
-                    if (stats.f_type != BPF_FS_MAGIC)
-                    {
-                        FATAL("counters map: pin directory not on BPF filesystem: %s", dir_path);
-                    }
-
-                    char path[PATH_MAX];
-                    int pathlen = snprintf(path, PATH_MAX, "%s/%s", dir_path, "profc");
-                    if (pathlen >= PATH_MAX)
-                    {
-                        FATAL("counters map: pin path too long");
-                    }
-
-                    free(dir_path);
-
-                    if (access(path, F_OK) == 0)
-                    {
-                        PRINT("counters map: pin path already exists: %s\n", path);
-                        continue; // TODO(leodido) > make this behavior configurable: ignore, delete and pin again, error out
-                    }
-
-                    int err = bpf_obj_pin(curfd, path);
-                    if (err)
-                    {
-                        FATAL("counters map: cannot pin counters map: %s", path);
+                        err = bpf_obj_pin(curfd, pin_path);
+                        if (err)
+                        {
+                            FATAL("cannot pin map: %s", pin_path);
+                        }
+                        PRINT("pinning successful: %s\n", pin_path);
                     }
                 }
             }
         }
     }
-}
-
-int ends_with(const char *str, const char *suf)
-{
-    if (!str || !suf)
-    {
-        return 0;
-    }
-    size_t lenstr = strlen(str);
-    size_t lensuf = strlen(suf);
-    if (lensuf > lenstr)
-    {
-        return 0;
-    }
-    return strncmp(str + lenstr - lensuf, suf, lensuf) == 0;
 }
 
 static void replace_with(char *s, const char what, const char with)
@@ -245,3 +203,54 @@ static void replace_with(char *s, const char what, const char with)
     }
 }
 
+int make_pin_path(const char *root, const char *prog_name, const char *map_name, char **pin_path)
+{
+    char dir[PATH_MAX];
+    int dirlen = snprintf(dir, PATH_MAX, "%s/%s", root, prog_name);
+    if (dirlen < 0)
+    {
+        FATAL("pin directory too short");
+        goto error_out;
+    }
+    else if (dirlen >= PATH_MAX)
+    {
+        FATAL("pin directory too long");
+        goto error_out;
+    }
+
+    char *dir_path = strdup(dir);
+    replace_with(dir_path, '.', '_');
+
+    if (mkdir(dir_path, 0700) && errno != EEXIST)
+    {
+        FATAL("cannot create pin path: %s", dir_path);
+        goto error_out;
+    }
+
+    struct statfs stats;
+    if (statfs(dir_path, &stats))
+    {
+        FATAL("cannot get pin directory filesystem statistics: %s", dir_path);
+        goto error_out;
+    }
+    if (stats.f_type != BPF_FS_MAGIC)
+    {
+        FATAL("pin directory not on BPF filesystem: %s", dir_path);
+        goto error_out;
+    }
+
+    char path[PATH_MAX];
+    int pathlen = snprintf(path, PATH_MAX, "%s/%s", dir_path, map_name);
+    if (pathlen >= PATH_MAX)
+    {
+        FATAL("pin path too long");
+    }
+    *pin_path = path;
+
+    free(dir_path);
+
+    return 1;
+
+error_out:
+    return 0;
+}
