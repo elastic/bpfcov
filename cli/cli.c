@@ -64,9 +64,10 @@ int main(int argc, char **argv)
 struct root_args
 {
     char *bpffs;
+    char *cov_root;
+    char *program;
     int verbosity;
     callback_t command;
-    char *program;
 };
 
 const char ROOT_BPFFS_OPT_KEY = 0x80;
@@ -177,7 +178,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         }
         break;
 
-    // Final validations and checks
+    // Final validations, checks, and settings
     case ARGP_KEY_FINI:
         // Check the BPF filesystem
         if (!is_bpffs(args->bpffs))
@@ -185,6 +186,17 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
             argp_error(state, "the BPF filesystem is not mounted at %s", args->bpffs);
         }
         // Create coverage directory in the BPF filesystem
+        char cov_root[PATH_MAX];
+        int cov_root_len = snprintf(cov_root, PATH_MAX, "%s/%s", args->bpffs, "cov");
+        if (cov_root_len >= PATH_MAX)
+        {
+            argp_error(state, "the path of the coverage root inside the BPF filesystem is too long");
+        }
+        if (mkdir(cov_root, 0700) && errno != EEXIST)
+        {
+            argp_error(state, "could not create the coverage root '%s' inside the BPF filesystem", cov_root);
+        }
+        args->cov_root = cov_root;
         break;
 
     default:
