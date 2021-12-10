@@ -49,11 +49,11 @@ static bool is_bpffs(char *bpffs_path);
 static void strip_trailing_char(char *str, char c);
 static void replace_with(char *str, const char what, const char with);
 
-    // --------------------------------------------------------------------------------------------------------------------
-    // Entrypoint
-    // --------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+// Entrypoint
+// --------------------------------------------------------------------------------------------------------------------
 
-    int main(int argc, char **argv)
+int main(int argc, char **argv)
 {
     root(argc, argv);
 
@@ -70,6 +70,10 @@ struct root_args
     char *cov_root;
     char *program;
     char *prog_root;
+    char *pin_profc;
+    char *pin_profn;
+    char *pin_profd;
+    char *pin_covmap_head;
     int verbosity;
     callback_t command;
 };
@@ -110,6 +114,15 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
 
     switch (key)
     {
+
+    // Initialization
+    case ARGP_KEY_INIT:
+        args->bpffs = "/sys/fs/bpf";
+        args->verbosity = 0;
+        args->command = NULL;
+        args->program = NULL;
+        break;
+
     case ROOT_BPFFS_OPT_KEY:
         if (strlen(arg) > 0)
         {
@@ -162,14 +175,6 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
 
         break;
 
-    // Initialization
-    case ARGP_KEY_INIT:
-        args->bpffs = "/sys/fs/bpf";
-        args->verbosity = 0;
-        args->command = NULL;
-        args->program = NULL;
-        break;
-
     // Args validation
     case ARGP_KEY_END:
         if (state->arg_num == 0)
@@ -209,7 +214,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         int prog_root_len = snprintf(prog_root, PATH_MAX, "%s/%s", cov_root, prog_name);
         if (prog_root_len >= PATH_MAX)
         {
-            argp_error(state, "the path for the coverage of the current program '%s' is too long", prog_name);
+            argp_error(state, "the path for the coverage of the current program is too long");
         }
         char *prog_root_sane = strdup(prog_root);
         replace_with(prog_root_sane, '.', '_');
@@ -218,6 +223,42 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
             argp_error(state, "could not create the program root '%s' inside the BPF filesystem", prog_root_sane);
         }
         args->prog_root = prog_root_sane;
+
+        // Create pinning path for the counters map
+        char pin_profc[PATH_MAX];
+        int pin_profc_len = snprintf(pin_profc, PATH_MAX, "%s/%s", prog_root_sane, "profc");
+        if (pin_profc_len >= PATH_MAX)
+        {
+            argp_error(state, "the path for pinning the profiling counters of the current program is too long");
+        }
+        args->pin_profc = pin_profc;
+
+        // Create pinning path for the data map
+        char pin_profd[PATH_MAX];
+        int pin_profd_len = snprintf(pin_profd, PATH_MAX, "%s/%s", prog_root_sane, "profd");
+        if (pin_profd_len >= PATH_MAX)
+        {
+            argp_error(state, "the path for pinning the profiling data of the current program is too long");
+        }
+        args->pin_profd = pin_profd;
+
+        // Create pinning path for the names map
+        char pin_profn[PATH_MAX];
+        int pin_profn_len = snprintf(pin_profn, PATH_MAX, "%s/%s", prog_root_sane, "profd");
+        if (pin_profn_len >= PATH_MAX)
+        {
+            argp_error(state, "the path for pinning the profiling names of the current program is too long");
+        }
+        args->pin_profn = pin_profn;
+
+        // Create pinning path for the coverage mapping header
+        char pin_covmap_head[PATH_MAX];
+        int pin_covmap_head_len = snprintf(pin_covmap_head, PATH_MAX, "%s/%s", prog_root_sane, "profd");
+        if (pin_covmap_head_len >= PATH_MAX)
+        {
+            argp_error(state, "the path for pinning the profiling names of the current program is too long");
+        }
+        args->pin_covmap_head = pin_covmap_head;
 
         break;
 
@@ -246,7 +287,7 @@ void root(int argc, char **argv)
 }
 
 // --------------------------------------------------------------------------------------------------------------------
-// Functions
+// Miscellaneous
 // --------------------------------------------------------------------------------------------------------------------
 
 static bool is_bpffs(char *bpffs_path)
