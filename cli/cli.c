@@ -7,8 +7,6 @@
 #include <string.h>
 #include <time.h>
 
-#include <argp.h>
-
 /* POSIX */
 #include <unistd.h>
 #include <sys/user.h>
@@ -22,6 +20,8 @@
 #include <linux/limits.h>
 #include <linux/magic.h>
 #include <bpf/bpf.h>
+
+#include <argp.h>
 
 // --------------------------------------------------------------------------------------------------------------------
 // Global info
@@ -44,6 +44,7 @@ int run(struct root_args *args);
 int gen(struct root_args *args);
 
 static bool is_bpffs(char *bpffs_path);
+void strip_trailing_char(char *str, char c);
 
 // --------------------------------------------------------------------------------------------------------------------
 // Entrypoint
@@ -107,6 +108,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
     case ROOT_BPFFS_OPT_KEY:
         if (strlen(arg) > 0)
         {
+            strip_trailing_char(arg, '/');
             args->bpffs = arg;
             break;
         }
@@ -221,6 +223,15 @@ static bool is_bpffs(char *bpffs_path)
         return false;
 
     return st_fs.f_type == BPF_FS_MAGIC;
+}
+
+void strip_trailing_char(char *str, char c)
+{
+    int last = strlen(str) - 1;
+    while (last > 0 && str[last] == c)
+    {
+        str[last--] = '\0';
+    }
 }
 
 // --------------------------------------------------------------------------------------------------------------------
