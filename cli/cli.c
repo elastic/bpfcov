@@ -1,11 +1,13 @@
+#define _GNU_SOURCE
+
 /* C standard library */
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <string.h>
 #include <time.h>
+#include <string.h>
 
 /* POSIX */
 #include <unistd.h>
@@ -44,13 +46,14 @@ int run(struct root_args *args);
 int gen(struct root_args *args);
 
 static bool is_bpffs(char *bpffs_path);
-void strip_trailing_char(char *str, char c);
+static void strip_trailing_char(char *str, char c);
+static void replace_with(char *str, const char what, const char with);
 
-// --------------------------------------------------------------------------------------------------------------------
-// Entrypoint
-// --------------------------------------------------------------------------------------------------------------------
+    // --------------------------------------------------------------------------------------------------------------------
+    // Entrypoint
+    // --------------------------------------------------------------------------------------------------------------------
 
-int main(int argc, char **argv)
+    int main(int argc, char **argv)
 {
     root(argc, argv);
 
@@ -66,6 +69,7 @@ struct root_args
     char *bpffs;
     char *cov_root;
     char *program;
+    char *prog_root;
     int verbosity;
     callback_t command;
 };
@@ -185,7 +189,8 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             argp_error(state, "the BPF filesystem is not mounted at %s", args->bpffs);
         }
-        // Create coverage directory in the BPF filesystem
+
+        // Create the coverage directory in the BPF filesystem
         char cov_root[PATH_MAX];
         int cov_root_len = snprintf(cov_root, PATH_MAX, "%s/%s", args->bpffs, "cov");
         if (cov_root_len >= PATH_MAX)
@@ -197,6 +202,23 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
             argp_error(state, "could not create the coverage root '%s' inside the BPF filesystem", cov_root);
         }
         args->cov_root = cov_root;
+
+        // Obtain the program name and create a directory in the BPF filesystem for it
+        char *prog_name = basename(args->program);
+        char prog_root[PATH_MAX];
+        int prog_root_len = snprintf(prog_root, PATH_MAX, "%s/%s", cov_root, prog_name);
+        if (prog_root_len >= PATH_MAX)
+        {
+            argp_error(state, "the path for the coverage of the current program '%s' is too long", prog_name);
+        }
+        char *prog_root_sane = strdup(prog_root);
+        replace_with(prog_root_sane, '.', '_');
+        if (mkdir(prog_root_sane, 0700) && errno != EEXIST)
+        {
+            argp_error(state, "could not create the program root '%s' inside the BPF filesystem", prog_root_sane);
+        }
+        args->prog_root = prog_root_sane;
+
         break;
 
     default:
@@ -237,12 +259,24 @@ static bool is_bpffs(char *bpffs_path)
     return st_fs.f_type == BPF_FS_MAGIC;
 }
 
-void strip_trailing_char(char *str, char c)
+static void strip_trailing_char(char *str, char c)
 {
     int last = strlen(str) - 1;
     while (last > 0 && str[last] == c)
     {
         str[last--] = '\0';
+    }
+}
+
+static void replace_with(char *str, const char what, const char with)
+{
+    while (*str)
+    {
+        if (*str == what)
+        {
+            *str = with;
+        }
+        str++;
     }
 }
 
@@ -254,6 +288,7 @@ int run(struct root_args *args)
 {
     fprintf(stdout, "RUN\n");
     fprintf(stdout, "root: program = '%s'\n", args->program);
+    fprintf(stdout, "root: program = '%s'\n", args->prog_root);
 
     return 0;
 }
@@ -262,6 +297,7 @@ int gen(struct root_args *args)
 {
     fprintf(stdout, "GEN\n");
     fprintf(stdout, "root: program = '%s'\n", args->program);
+    fprintf(stdout, "root: program = '%s'\n", args->prog_root);
 
     return 0;
 }
