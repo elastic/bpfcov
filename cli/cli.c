@@ -1,10 +1,27 @@
+/* C standard library */
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <time.h>
+
 #include <argp.h>
+
+/* POSIX */
+#include <unistd.h>
+#include <sys/user.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <sys/vfs.h>
+
+/* Linux */
+#include <syscall.h>
+#include <sys/ptrace.h>
+#include <linux/limits.h>
+#include <linux/magic.h>
+#include <bpf/bpf.h>
 
 // --------------------------------------------------------------------------------------------------------------------
 // Global info
@@ -25,6 +42,8 @@ struct root_args;
 typedef int (*callback_t)(struct root_args *args);
 int run(struct root_args *args);
 int gen(struct root_args *args);
+
+static bool is_bpffs(char *bpffs_path);
 
 // --------------------------------------------------------------------------------------------------------------------
 // Entrypoint
@@ -50,12 +69,16 @@ struct root_args
 };
 
 const char ROOT_BPFFS_OPT_KEY = 0x80;
+const char ROOT_BPFFS_OPT_LONG[] = "bpffs";
+const char ROOT_BPFFS_OPT_ARG[] = "path";
 const char ROOT_VERBOSITY_OPT_KEY = 'v';
+const char ROOT_VERBOSITY_OPT_LONG[] = "verbose";
+const char ROOT_VERBOSITY_OPT_ARG[] = "level";
 
 static struct argp_option root_opts[] = {
     {"OPTIONS:", 0, 0, OPTION_DOC, 0, 0},
-    {"bpffs", ROOT_BPFFS_OPT_KEY, "path", 0, "Set the BPF FS path (defaults to /sys/fs/bpf)", 1},
-    {"verbose", ROOT_VERBOSITY_OPT_KEY, "level", OPTION_ARG_OPTIONAL, "Set the verbosity level (defaults to 0)", -1},
+    {ROOT_BPFFS_OPT_LONG, ROOT_BPFFS_OPT_KEY, ROOT_BPFFS_OPT_ARG, 0, "Set the BPF FS path (defaults to /sys/fs/bpf)", 1},
+    {ROOT_VERBOSITY_OPT_LONG, ROOT_VERBOSITY_OPT_KEY, ROOT_VERBOSITY_OPT_ARG, OPTION_ARG_OPTIONAL, "Set the verbosity level (defaults to 0)", -1},
     {0} // .
 };
 
@@ -82,7 +105,12 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
     switch (key)
     {
     case ROOT_BPFFS_OPT_KEY:
-        args->bpffs = arg;
+        if (strlen(arg) > 0)
+        {
+            args->bpffs = arg;
+            break;
+        }
+        argp_error(state, "option '--%s' requires a %s", ROOT_BPFFS_OPT_LONG, ROOT_BPFFS_OPT_ARG);
         break;
 
     case ROOT_VERBOSITY_OPT_KEY:
@@ -135,7 +163,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         args->program = NULL;
         break;
 
-    // Validation
+    // Args validation
     case ARGP_KEY_END:
         if (state->arg_num == 0)
         {
@@ -145,6 +173,16 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             argp_usage(state);
         }
+        break;
+
+    // Final validations and checks
+    case ARGP_KEY_FINI:
+        // Check the BPF filesystem
+        if (!is_bpffs(args->bpffs))
+        {
+            argp_error(state, "the BPF filesystem is not mounted at %s", args->bpffs);
+        }
+        // Create coverage directory in the BPF filesystem
         break;
 
     default:
@@ -169,6 +207,20 @@ void root(int argc, char **argv)
         // run(&this);
         // gen(&this);
     }
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+// Functions
+// --------------------------------------------------------------------------------------------------------------------
+
+static bool is_bpffs(char *bpffs_path)
+{
+    struct statfs st_fs;
+
+    if (statfs(bpffs_path, &st_fs) < 0)
+        return false;
+
+    return st_fs.f_type == BPF_FS_MAGIC;
 }
 
 // --------------------------------------------------------------------------------------------------------------------
