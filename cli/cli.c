@@ -64,16 +64,15 @@ int main(int argc, char **argv)
 // CLI
 // --------------------------------------------------------------------------------------------------------------------
 
+#define NUM_PINNED_MAPS 4
+
 struct root_args
 {
     char *bpffs;
     char *cov_root;
     char *program;
     char *prog_root;
-    char *pin_profc;
-    char *pin_profn;
-    char *pin_profd;
-    char *pin_covmap_head;
+    char *pin[NUM_PINNED_MAPS];
     int verbosity;
     callback_t command;
 };
@@ -231,7 +230,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             argp_error(state, "the path for pinning the profiling counters of the current program is too long");
         }
-        args->pin_profc = pin_profc;
+        args->pin[0] = pin_profc;
 
         // Create pinning path for the data map
         char pin_profd[PATH_MAX];
@@ -240,25 +239,38 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             argp_error(state, "the path for pinning the profiling data of the current program is too long");
         }
-        args->pin_profd = pin_profd;
+        args->pin[1] = pin_profd;
 
         // Create pinning path for the names map
         char pin_profn[PATH_MAX];
-        int pin_profn_len = snprintf(pin_profn, PATH_MAX, "%s/%s", prog_root_sane, "profd");
+        int pin_profn_len = snprintf(pin_profn, PATH_MAX, "%s/%s", prog_root_sane, "profn");
         if (pin_profn_len >= PATH_MAX)
         {
             argp_error(state, "the path for pinning the profiling names of the current program is too long");
         }
-        args->pin_profn = pin_profn;
+        args->pin[2] = pin_profn;
 
         // Create pinning path for the coverage mapping header
         char pin_covmap_head[PATH_MAX];
-        int pin_covmap_head_len = snprintf(pin_covmap_head, PATH_MAX, "%s/%s", prog_root_sane, "profd");
+        int pin_covmap_head_len = snprintf(pin_covmap_head, PATH_MAX, "%s/%s", prog_root_sane, "covmap_head");
         if (pin_covmap_head_len >= PATH_MAX)
         {
             argp_error(state, "the path for pinning the profiling names of the current program is too long");
         }
-        args->pin_covmap_head = pin_covmap_head;
+        args->pin[3] = pin_covmap_head;
+
+        // Check whether the map pinning paths already exist and unpin them in case they do
+        int p;
+        for (p = 0; p < NUM_PINNED_MAPS; p++)
+        {
+            if (access(args->pin[p], F_OK) == 0)
+            {
+                if (unlink(args->pin[p]) != 0)
+                {
+                    argp_error(state, "could not unpin the map '%s' from the BPF filesystem", args->pin[p]);
+                }
+            }
+        }
 
         break;
 
