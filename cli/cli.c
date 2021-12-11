@@ -37,12 +37,18 @@ error_t argp_err_exit_status = 1;
 // Prototypes
 // --------------------------------------------------------------------------------------------------------------------
 
-void root(int argc, char **argv);
-static error_t root_parse(int key, char *arg, struct argp_state *state);
+const char *argp_key(int key, char *str);
 
 struct root_args;
 typedef int (*callback_t)(struct root_args *args);
+
+static error_t root_parse(int key, char *arg, struct argp_state *state);
+void root(int argc, char **argv);
+
+void run_cmd(struct argp_state *state);
+static error_t run_parse(int key, char *arg, struct argp_state *state);
 int run(struct root_args *args);
+
 int gen(struct root_args *args);
 
 static bool is_bpffs(char *bpffs_path);
@@ -61,7 +67,7 @@ int main(int argc, char **argv)
 }
 
 // --------------------------------------------------------------------------------------------------------------------
-// CLI
+// CLI / bpfcov ...
 // --------------------------------------------------------------------------------------------------------------------
 
 #define NUM_PINNED_MAPS 4
@@ -70,11 +76,11 @@ struct root_args
 {
     char *bpffs;
     char *cov_root;
-    char *program;
     char *prog_root;
     char *pin[NUM_PINNED_MAPS];
     int verbosity;
     callback_t command;
+    char **program;
 };
 
 const char ROOT_BPFFS_OPT_KEY = 0x80;
@@ -111,6 +117,9 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
 {
     struct root_args *args = state->input;
 
+    char keystr[2];
+    fprintf(stdout, "root: parsing %s = '%s'\n", argp_key(key, keystr), arg ? arg : "(null)");
+
     switch (key)
     {
 
@@ -119,7 +128,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         args->bpffs = "/sys/fs/bpf";
         args->verbosity = 0;
         args->command = NULL;
-        args->program = NULL;
+        args->program = calloc(PATH_MAX, sizeof(char *));
         break;
 
     case ROOT_BPFFS_OPT_KEY:
@@ -146,30 +155,19 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
     case ARGP_KEY_ARG:
         assert(arg);
 
-        switch (state->arg_num)
+        if (strncmp(arg, "run", 3) == 0)
         {
-        case 0:
-            if (strncmp(arg, "run", 3) == 0)
-            {
-                args->command = &run;
-            }
-            else if (strncmp(arg, "gen", 3) == 0)
-            {
-                args->command = &gen;
-            }
-            else
-            {
-                args->program = arg;
-            }
-            break;
-
-        case 1:
-            args->program = arg;
-            break;
-
-        default:
-            argp_usage(state);
-            break;
+            args->command = &run;
+            run_cmd(state);
+        }
+        else if (strncmp(arg, "gen", 3) == 0)
+        {
+            args->command = &gen;
+            // gen_cmd(state);
+        }
+        else
+        {
+            args->program[state->arg_num] = arg;
         }
 
         break;
@@ -180,9 +178,10 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             argp_state_help(state, state->err_stream, ARGP_HELP_STD_HELP);
         }
-        if ((state->arg_num == 2 && !args->command != !args->program) || (state->arg_num == 1 && !args->program))
+        if (args->program[0] == NULL)
         {
-            argp_usage(state);
+            // This should never happen
+            argp_error(state, "unexpected missing <program>");
         }
         break;
 
@@ -199,27 +198,27 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         int cov_root_len = snprintf(cov_root, PATH_MAX, "%s/%s", args->bpffs, "cov");
         if (cov_root_len >= PATH_MAX)
         {
-            argp_error(state, "the path of the coverage root inside the BPF filesystem is too long");
+            argp_error(state, "coverage root path too long");
         }
         if (mkdir(cov_root, 0700) && errno != EEXIST)
         {
-            argp_error(state, "could not create the coverage root '%s' inside the BPF filesystem", cov_root);
+            argp_error(state, "could not create '%s'", cov_root);
         }
         args->cov_root = cov_root;
 
         // Obtain the program name and create a directory in the BPF filesystem for it
-        char *prog_name = basename(args->program);
+        char *prog_name = basename(args->program[0]);
         char prog_root[PATH_MAX];
         int prog_root_len = snprintf(prog_root, PATH_MAX, "%s/%s", cov_root, prog_name);
         if (prog_root_len >= PATH_MAX)
         {
-            argp_error(state, "the path for the coverage of the current program is too long");
+            argp_error(state, "program root path too long");
         }
         char *prog_root_sane = strdup(prog_root);
         replace_with(prog_root_sane, '.', '_');
         if (mkdir(prog_root_sane, 0700) && errno != EEXIST)
         {
-            argp_error(state, "could not create the program root '%s' inside the BPF filesystem", prog_root_sane);
+            argp_error(state, "could not create '%s'", prog_root_sane);
         }
         args->prog_root = prog_root_sane;
 
@@ -228,7 +227,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         int pin_profc_len = snprintf(pin_profc, PATH_MAX, "%s/%s", prog_root_sane, "profc");
         if (pin_profc_len >= PATH_MAX)
         {
-            argp_error(state, "the path for pinning the profiling counters of the current program is too long");
+            argp_error(state, "counters pinning path too long");
         }
         args->pin[0] = pin_profc;
 
@@ -237,7 +236,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         int pin_profd_len = snprintf(pin_profd, PATH_MAX, "%s/%s", prog_root_sane, "profd");
         if (pin_profd_len >= PATH_MAX)
         {
-            argp_error(state, "the path for pinning the profiling data of the current program is too long");
+            argp_error(state, "data pinning path too long");
         }
         args->pin[1] = pin_profd;
 
@@ -246,7 +245,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         int pin_profn_len = snprintf(pin_profn, PATH_MAX, "%s/%s", prog_root_sane, "profn");
         if (pin_profn_len >= PATH_MAX)
         {
-            argp_error(state, "the path for pinning the profiling names of the current program is too long");
+            argp_error(state, "names pinning path too long");
         }
         args->pin[2] = pin_profn;
 
@@ -255,19 +254,22 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         int pin_covmap_head_len = snprintf(pin_covmap_head, PATH_MAX, "%s/%s", prog_root_sane, "covmap_head");
         if (pin_covmap_head_len >= PATH_MAX)
         {
-            argp_error(state, "the path for pinning the profiling names of the current program is too long");
+            argp_error(state, "coverage mapping header path too long");
         }
         args->pin[3] = pin_covmap_head;
 
-        // Check whether the map pinning paths already exist and unpin them in case they do
+        // Check whether the map pinning paths already exist and unpin them in case they do exist
+        // Only if current subcommand is not `gen`
+        bool is_gen = args->command == &gen;
         int p;
-        for (p = 0; p < NUM_PINNED_MAPS; p++)
+        for (p = 0; p < NUM_PINNED_MAPS && !is_gen; p++)
         {
             if (access(args->pin[p], F_OK) == 0)
             {
+                fprintf(stdout, "unpinning existing map '%s'\n", args->pin[p]); // FIXME > use logging (with verbosity) routine
                 if (unlink(args->pin[p]) != 0)
                 {
-                    argp_error(state, "could not unpin the map '%s' from the BPF filesystem", args->pin[p]);
+                    argp_error(state, "could not unpin map '%s'", args->pin[p]);
                 }
             }
         }
@@ -293,14 +295,127 @@ void root(int argc, char **argv)
     else
     {
         fprintf(stderr, "TBD\n");
+        fprintf(stdout, "root: program = '%s'\n", this.program[0]);
         // run(&this);
         // gen(&this);
     }
 }
 
 // --------------------------------------------------------------------------------------------------------------------
+// CLI / bpfcov run ...
+// --------------------------------------------------------------------------------------------------------------------
+
+struct run_args
+{
+    struct root_args *parent;
+};
+
+static struct argp_option run_opts[] = {
+    {0} // .
+};
+
+static char run_docs[] = "\n"
+                         "run\n"
+                         "\n";
+
+static struct argp run_argp = {
+    .options = run_opts,
+    .parser = run_parse,
+    .args_doc = "<program>",
+    .doc = run_docs,
+};
+
+static error_t
+run_parse(int key, char *arg, struct argp_state *state)
+{
+    struct run_args *args = state->input;
+
+    assert(args);
+    assert(args->parent);
+
+    char keystr[2];
+    fprintf(stdout, "run: parsing %s = '%s'\n", argp_key(key, keystr), arg ? arg : "(null)");
+
+    switch (key)
+    {
+    case ARGP_KEY_ARG:
+        args->parent->program[state->arg_num] = arg;
+        break;
+
+    case ARGP_KEY_END:
+        if (args->parent->program[0] == NULL)
+        {
+            argp_error(state, "missing <program>");
+        }
+        break;
+
+    default:
+        return ARGP_ERR_UNKNOWN;
+    }
+
+    return 0;
+}
+
+void run_cmd(struct argp_state *state)
+{
+    struct run_args args = {};
+    int argc = state->argc - state->next + 1;
+    char **argv = &state->argv[state->next - 1];
+    char *argv0 = argv[0];
+
+    args.parent = state->input;
+
+    fprintf(stdout, "run: begin (argc = %d, argv[0] = %s)\n", argc, argv[0]);
+
+    argv[0] = malloc(strlen(state->name) + strlen(" run") + 1);
+    if (!argv[0])
+    {
+        argp_failure(state, 1, ENOMEM, 0);
+    }
+    sprintf(argv[0], "%s run", state->name);
+
+    argp_parse(&run_argp, argc, argv, ARGP_IN_ORDER, &argc, &args);
+
+    free(argv[0]);
+
+    argv[0] = argv0;
+
+    state->next += argc - 1;
+
+    fprintf(stdout, "run: end (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
+}
+
+// --------------------------------------------------------------------------------------------------------------------
 // Miscellaneous
 // --------------------------------------------------------------------------------------------------------------------
+
+const char *argp_key(int key, char *str)
+{
+    str[0] = key;
+    str[1] = 0;
+
+    switch (key)
+    {
+    case ARGP_KEY_ARG:
+        return "ARGP_KEY_ARG";
+    case ARGP_KEY_ARGS:
+        return "ARGP_KEY_ARGS";
+    case ARGP_KEY_END:
+        return "ARGP_KEY_END";
+    case ARGP_KEY_NO_ARGS:
+        return "ARGP_KEY_NO_ARGS";
+    case ARGP_KEY_INIT:
+        return "ARGP_KEY_INIT";
+    case ARGP_KEY_SUCCESS:
+        return "ARGP_KEY_SUCCESS";
+    case ARGP_KEY_ERROR:
+        return "ARGP_KEY_ERROR";
+    case ARGP_KEY_FINI:
+        return "ARGP_KEY_FINI";
+    }
+
+    return str;
+};
 
 static bool is_bpffs(char *bpffs_path)
 {
@@ -340,8 +455,9 @@ static void replace_with(char *str, const char what, const char with)
 int run(struct root_args *args)
 {
     fprintf(stdout, "RUN\n");
-    fprintf(stdout, "root: program = '%s'\n", args->program);
-    fprintf(stdout, "root: program = '%s'\n", args->prog_root);
+    fprintf(stdout, "root: program = '%s'\n", args->program[0]);
+    // fprintf(stdout, "root: program = '%s'\n", args->program[1]);
+    // fprintf(stdout, "root: program = '%s'\n", args->prog_root);
 
     return 0;
 }
@@ -349,8 +465,8 @@ int run(struct root_args *args)
 int gen(struct root_args *args)
 {
     fprintf(stdout, "GEN\n");
-    fprintf(stdout, "root: program = '%s'\n", args->program);
-    fprintf(stdout, "root: program = '%s'\n", args->prog_root);
+    fprintf(stdout, "root: program = '%s'\n", args->program[0]);
+    // fprintf(stdout, "root: program = '%s'\n", args->prog_root);
 
     return 0;
 }
