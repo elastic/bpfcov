@@ -144,7 +144,19 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
     case ROOT_VERBOSITY_OPT_KEY:
         if (arg)
         {
-            args->verbosity = atoi(arg);
+            errno = 0;
+            char *end;
+            long num = strtol(arg, &end, 10);
+            if (end == arg)
+            {
+                argp_error(state, "option '--%s' requires a numeric %s", ROOT_VERBOSITY_OPT_LONG, ROOT_VERBOSITY_OPT_ARG);
+            }
+            if (num < 0 || num > 3)
+            {
+                argp_error(state, "option '--%s' requires a %s value in [0,3]", ROOT_VERBOSITY_OPT_LONG, ROOT_VERBOSITY_OPT_ARG);
+            }
+
+            args->verbosity = (int)num;
         }
         else
         {
@@ -417,6 +429,23 @@ const char *argp_key(int key, char *str)
     return str;
 };
 
+// void log(int level, struct root_args *args, const char *fmt, ...)
+// {
+//     if (args->verbosity < level)
+//     {
+//         return;
+//     }
+
+//     va_list ap;
+//     FILE* f =
+// }
+
+// verbosity
+// 0 = only errors
+// 1 = errors and warnings
+// 2 = errors, warnings and info
+// 3 = errors, warnings, info and debug
+
 static bool is_bpffs(char *bpffs_path)
 {
     struct statfs st_fs;
@@ -456,6 +485,7 @@ int run(struct root_args *args)
 {
     fprintf(stdout, "RUN\n");
     fprintf(stdout, "root: program = '%s'\n", args->program[0]);
+
     // fprintf(stdout, "root: program = '%s'\n", args->program[1]);
     // fprintf(stdout, "root: program = '%s'\n", args->prog_root);
 
