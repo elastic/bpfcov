@@ -1,5 +1,11 @@
 #define _GNU_SOURCE
 
+#ifdef NDEBUG
+#define DEBUG 0
+#else
+#define DEBUG 1
+#endif
+
 /* C standard library */
 #include <assert.h>
 #include <stdarg.h>
@@ -56,6 +62,40 @@ static void strip_trailing_char(char *str, char c);
 static void replace_with(char *str, const char what, const char with);
 
 // --------------------------------------------------------------------------------------------------------------------
+// Logging
+// --------------------------------------------------------------------------------------------------------------------
+
+void print_log(int level, struct root_args *args, const char *fmt, ...);
+
+#define log_erro(args, fmt, ...)                  \
+    do                                            \
+    {                                             \
+        if (DEBUG)                                \
+            print_log(0, args, fmt, __VA_ARGS__); \
+    } while (0)
+
+#define log_warn(args, fmt, ...)                  \
+    do                                            \
+    {                                             \
+        if (DEBUG)                                \
+            print_log(1, args, fmt, __VA_ARGS__); \
+    } while (0)
+
+#define log_info(args, fmt, ...)                  \
+    do                                            \
+    {                                             \
+        if (DEBUG)                                \
+            print_log(2, args, fmt, __VA_ARGS__); \
+    } while (0)
+
+#define log_debu(args, fmt, ...)                  \
+    do                                            \
+    {                                             \
+        if (DEBUG)                                \
+            print_log(3, args, fmt, __VA_ARGS__); \
+    } while (0)
+
+// --------------------------------------------------------------------------------------------------------------------
 // Entrypoint
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -93,7 +133,16 @@ const char ROOT_VERBOSITY_OPT_ARG[] = "level";
 static struct argp_option root_opts[] = {
     {"OPTIONS:", 0, 0, OPTION_DOC, 0, 0},
     {ROOT_BPFFS_OPT_LONG, ROOT_BPFFS_OPT_KEY, ROOT_BPFFS_OPT_ARG, 0, "Set the BPF FS path (defaults to /sys/fs/bpf)", 1},
-    {ROOT_VERBOSITY_OPT_LONG, ROOT_VERBOSITY_OPT_KEY, ROOT_VERBOSITY_OPT_ARG, OPTION_ARG_OPTIONAL, "Set the verbosity level (defaults to 0)", -1},
+    {
+
+        ROOT_VERBOSITY_OPT_LONG,
+        ROOT_VERBOSITY_OPT_KEY,
+        ROOT_VERBOSITY_OPT_ARG,
+        OPTION_ARG_OPTIONAL,
+        "Set the verbosity level (defaults to 0)",
+        -1
+
+    },
     {0} // .
 };
 
@@ -117,8 +166,8 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
 {
     struct root_args *args = state->input;
 
-    char keystr[2];
-    fprintf(stdout, "root: parsing %s = '%s'\n", argp_key(key, keystr), arg ? arg : "(null)");
+    char str[2];
+    log_debu(args, "root: parsing %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
 
     switch (key)
     {
@@ -278,7 +327,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             if (access(args->pin[p], F_OK) == 0)
             {
-                fprintf(stdout, "unpinning existing map '%s'\n", args->pin[p]); // FIXME > use logging (with verbosity) routine
+                log_warn(args, "unpinning existing map '%s'", args->pin[p]);
                 if (unlink(args->pin[p]) != 0)
                 {
                     argp_error(state, "could not unpin map '%s'", args->pin[p]);
@@ -297,7 +346,9 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
 
 void root(int argc, char **argv)
 {
-    struct root_args this;
+    struct root_args this = {
+        .verbosity = 0,
+    };
     argp_parse(&root_argp, argc, argv, ARGP_IN_ORDER, NULL, &this);
 
     if (this.command)
@@ -345,8 +396,8 @@ run_parse(int key, char *arg, struct argp_state *state)
     assert(args);
     assert(args->parent);
 
-    char keystr[2];
-    fprintf(stdout, "run: parsing %s = '%s'\n", argp_key(key, keystr), arg ? arg : "(null)");
+    char str[2];
+    log_debu(args->parent, "run: parsing %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
 
     switch (key)
     {
@@ -377,7 +428,7 @@ void run_cmd(struct argp_state *state)
 
     args.parent = state->input;
 
-    fprintf(stdout, "run: begin (argc = %d, argv[0] = %s)\n", argc, argv[0]);
+    log_debu(args.parent, "run: begin (argc = %d, argv[0] = %s)\n", argc, argv[0]);
 
     argv[0] = malloc(strlen(state->name) + strlen(" run") + 1);
     if (!argv[0])
@@ -394,7 +445,7 @@ void run_cmd(struct argp_state *state)
 
     state->next += argc - 1;
 
-    fprintf(stdout, "run: end (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
+    log_debu(args.parent, "run: end (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -429,22 +480,40 @@ const char *argp_key(int key, char *str)
     return str;
 };
 
-// void log(int level, struct root_args *args, const char *fmt, ...)
-// {
-//     if (args->verbosity < level)
-//     {
-//         return;
-//     }
+void print_log(int level, struct root_args *args, const char *fmt, ...)
+{
+    if (args->verbosity < level)
+    {
+        return;
+    }
 
-//     va_list ap;
-//     FILE* f =
-// }
+    const char *qual;
+    switch (level)
+    {
+    case 0:
+        qual = "erro";
+        break;
+    case 1:
+        qual = "warn";
+        break;
+    case 2:
+        qual = "info";
+        break;
+    case 3:
+        qual = "debu";
+        break;
+    default:
+        qual = "unkn";
+        break;
+    }
 
-// verbosity
-// 0 = only errors
-// 1 = errors and warnings
-// 2 = errors, warnings and info
-// 3 = errors, warnings, info and debug
+    va_list argptr;
+    FILE *f = level == 0 ? stderr : stdout;
+    va_start(argptr, fmt);
+    fprintf(f, "bpfcov: %s: ", qual);
+    vfprintf(f, fmt, argptr);
+    va_end(argptr);
+}
 
 static bool is_bpffs(char *bpffs_path)
 {
@@ -483,20 +552,14 @@ static void replace_with(char *str, const char what, const char with)
 
 int run(struct root_args *args)
 {
-    fprintf(stdout, "RUN\n");
-    fprintf(stdout, "root: program = '%s'\n", args->program[0]);
-
-    // fprintf(stdout, "root: program = '%s'\n", args->program[1]);
-    // fprintf(stdout, "root: program = '%s'\n", args->prog_root);
+    log_info(args, "executing program '%s'\n", args->program[0]);
 
     return 0;
 }
 
 int gen(struct root_args *args)
 {
-    fprintf(stdout, "GEN\n");
-    fprintf(stdout, "root: program = '%s'\n", args->program[0]);
-    // fprintf(stdout, "root: program = '%s'\n", args->prog_root);
+    log_info(args, "generating from program '%s'\n", args->program[0]);
 
     return 0;
 }
