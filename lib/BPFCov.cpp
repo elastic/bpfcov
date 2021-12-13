@@ -272,6 +272,33 @@ namespace
                     // Increment the counter offset for the next __profd_*
                     CountersSizeAcc += NumCounters * 8;
 
+                    // Create fake (zero) global scalars for 4th and 5th field of __profd_* structs
+                    auto *GV3 = new GlobalVariable(
+                        M,
+                        /*Ty=*/Ty1,
+                        /*isConstant=*/true,
+                        /*Linkage=*/GlobalVariable::ExternalLinkage,
+                        /*Initializer=*/ConstantInt::get(Ty1, 0, true), // TODO > we want this or zeroinitializer?
+                        /*Name=*/Name + ".3",
+                        /*InsertBefore=*/GV);
+                    GV3->setDSOLocal(true);
+                    GV3->setAlignment(MaybeAlign(8));
+                    GV3->setSection("__llvm_prf_data");
+                    appendToUsed(M, GV3);
+
+                    auto *GV4 = new GlobalVariable(
+                        M,
+                        /*Ty=*/Ty1,
+                        /*isConstant=*/true,
+                        /*Linkage=*/GlobalVariable::ExternalLinkage,
+                        /*Initializer=*/ConstantInt::get(Ty1, 0, true), // TODO > we want this or zeroinitializer?
+                        /*Name=*/Name + ".4",
+                        /*InsertBefore=*/GV);
+                    GV4->setDSOLocal(true);
+                    GV4->setAlignment(MaybeAlign(8));
+                    GV4->setSection("__llvm_prf_data");
+                    appendToUsed(M, GV4);
+
                     // Translate the number of counters (that this data refers to) to a global scalar
 
                     // NOTE > Fitting a i32 in a i64 here is deliberate
