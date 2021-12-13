@@ -206,7 +206,7 @@ namespace
                         /*InsertBefore=*/GV);
                     GV0->setDSOLocal(true);
                     GV0->setAlignment(MaybeAlign(8));
-                    GV0->setSection("__llvm_prf_data");
+                    GV0->setSection(GV->getSection());
 
                     appendToUsed(M, GV0);
 
@@ -235,7 +235,7 @@ namespace
                         /*InsertBefore=*/GV);
                     GV1->setDSOLocal(true);
                     GV1->setAlignment(MaybeAlign(8));
-                    GV1->setSection("__llvm_prf_data");
+                    GV1->setSection(GV->getSection());
 
                     appendToUsed(M, GV1);
 
@@ -266,7 +266,7 @@ namespace
                         /*InsertBefore=*/GV);
                     GV2->setDSOLocal(true);
                     GV2->setAlignment(MaybeAlign(8));
-                    GV2->setSection("__llvm_prf_data");
+                    GV2->setSection(GV->getSection());
                     appendToUsed(M, GV2);
 
                     // Increment the counter offset for the next __profd_*
@@ -283,7 +283,7 @@ namespace
                         /*InsertBefore=*/GV);
                     GV3->setDSOLocal(true);
                     GV3->setAlignment(MaybeAlign(8));
-                    GV3->setSection("__llvm_prf_data");
+                    GV3->setSection(GV->getSection());
                     appendToUsed(M, GV3);
 
                     auto *GV4 = new GlobalVariable(
@@ -296,29 +296,37 @@ namespace
                         /*InsertBefore=*/GV);
                     GV4->setDSOLocal(true);
                     GV4->setAlignment(MaybeAlign(8));
-                    GV4->setSection("__llvm_prf_data");
+                    GV4->setSection(GV->getSection());
                     appendToUsed(M, GV4);
 
                     // Translate the number of counters (that this data refers to) to a global scalar
-
-                    // NOTE > Fitting a i32 in a i64 here is deliberate
-                    // NOTE > it is correct only when the 6th field (array of 2 short) is empty
-                    // TODO > otherwise should initialize filling the last 4 bytes with the value of the 6th field
-                    auto NumCountersC = ConstantInt::get(Ty1, NumCounters, true);
-
+                    auto NumCountersC = ConstantInt::get(Ty5, NumCounters, true);
                     auto *GV5 = new GlobalVariable(
                         M,
-                        /*Ty=*/Ty1, // NOTE > this is deliberate
+                        /*Ty=*/Ty5,
                         /*isConstant=*/true,
                         /*Linkage=*/GlobalVariable::ExternalLinkage,
                         /*Initializer=*/NumCountersC,
                         /*Name=*/Name + ".5",
                         /*InsertBefore=*/GV);
                     GV5->setDSOLocal(true);
-                    GV5->setAlignment(MaybeAlign(8));
-                    GV5->setSection("__llvm_prf_data");
-
+                    GV5->setAlignment(MaybeAlign(4));
+                    GV5->setSection(GV->getSection());
                     appendToUsed(M, GV5);
+
+                    // Translate the value sites [2 x i16] into a single i32
+                    auto *GV6 = new GlobalVariable(
+                        M,
+                        /*Ty=*/Ty5,
+                        /*isConstant=*/true,
+                        /*Linkage=*/GlobalVariable::ExternalLinkage,
+                        /*Initializer=*/ConstantInt::get(Ty5, 0, true), // TODO > obtain from the array values
+                        /*Name=*/Name + ".6",
+                        /*InsertBefore=*/GV);
+                    GV6->setDSOLocal(true);
+                    GV6->setAlignment(MaybeAlign(4));
+                    GV6->setSection(GV->getSection());
+                    appendToUsed(M, GV6);
 
                     ToDelete.push_back(GV);
                 }
@@ -566,27 +574,34 @@ namespace
                 }
                 else if (GV->getName().startswith("__profd"))
                 {
-                    if (GV->getName().endswith(".0") || GV->getName().endswith(".1") || GV->getName().endswith(".5"))
+                    DIBasicType *Ty;
+                    if (GV->getName().endswith(".0") || GV->getName().endswith(".1") || GV->getName().endswith(".2") || GV->getName().endswith(".3") || GV->getName().endswith(".4"))
                     {
-                        auto *DebugGVE = DIB.createGlobalVariableExpression(
-                            /*Context=*/DebugCU,
-                            /*Name=*/GV->getName(),
-                            /*LinkageName=*/"",
-                            /*File=*/DebugFile,
-                            /*LineNo=*/0,
-                            /*Ty=*/DIB.createBasicType("long long int", 64, dwarf::DW_ATE_signed),
-                            /*IsLocalToUnit=*/GV->hasLocalLinkage(),
-                            /*IsDefinition=*/true,
-                            /*Expr=*/nullptr,
-                            /*Decl=*/nullptr,
-                            /*TemplateParams=*/nullptr,
-                            /*AlignInBits=*/0);
-
-                        GV->addDebugInfo(DebugGVE);
-                        DebugGlobals.push_back(DebugGVE);
-
-                        Annotated = true;
+                        Ty = DIB.createBasicType("long long int", 64, dwarf::DW_ATE_signed);
                     }
+                    else if (GV->getName().endswith(".5") || GV->getName().endswith(".6"))
+                    {
+                        Ty = DIB.createBasicType("int", 32, dwarf::DW_ATE_signed);
+                    }
+
+                    auto *DebugGVE = DIB.createGlobalVariableExpression(
+                        /*Context=*/DebugCU,
+                        /*Name=*/GV->getName(),
+                        /*LinkageName=*/"",
+                        /*File=*/DebugFile,
+                        /*LineNo=*/0,
+                        /*Ty=*/Ty,
+                        /*IsLocalToUnit=*/GV->hasLocalLinkage(),
+                        /*IsDefinition=*/true,
+                        /*Expr=*/nullptr,
+                        /*Decl=*/nullptr,
+                        /*TemplateParams=*/nullptr,
+                        /*AlignInBits=*/0);
+
+                    GV->addDebugInfo(DebugGVE);
+                    DebugGlobals.push_back(DebugGVE);
+
+                    Annotated = true;
                 }
                 else if (GV->getName().startswith("__covrec"))
                 {
@@ -683,7 +698,6 @@ namespace
 
         return Annotated;
     }
-
 }
 
 //---------------------------------------------------------------------------------------------------------------------
