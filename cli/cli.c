@@ -35,7 +35,8 @@
 // Global info
 // --------------------------------------------------------------------------------------------------------------------
 
-const char *argp_program_version = "bpfcov 0.1";
+#define TOOL_NAME "bpfcov"
+const char *argp_program_version = TOOL_NAME " 0.1";
 const char *argp_program_bug_address = "leo";
 error_t argp_err_exit_status = 1;
 
@@ -55,6 +56,8 @@ void run_cmd(struct argp_state *state);
 static error_t run_parse(int key, char *arg, struct argp_state *state);
 int run(struct root_args *args);
 
+void gen_cmd(struct argp_state *state);
+static error_t gen_parse(int key, char *arg, struct argp_state *state);
 int gen(struct root_args *args);
 
 static bool is_bpffs(char *bpffs_path);
@@ -67,32 +70,32 @@ static void replace_with(char *str, const char what, const char with);
 
 void print_log(int level, const char *prefix, struct root_args *args, const char *fmt, ...);
 
-#define log_erro(args, fmt, ...)                                  \
-    do                                                            \
-    {                                                             \
-        if (DEBUG)                                                \
-            print_log(0, "bpfcov: %s: ", args, fmt, __VA_ARGS__); \
+#define log_erro(args, fmt, ...)                                      \
+    do                                                                \
+    {                                                                 \
+        if (DEBUG)                                                    \
+            print_log(0, TOOL_NAME ": %s: ", args, fmt, __VA_ARGS__); \
     } while (0)
 
-#define log_warn(args, fmt, ...)                                  \
-    do                                                            \
-    {                                                             \
-        if (DEBUG)                                                \
-            print_log(1, "bpfcov: %s: ", args, fmt, __VA_ARGS__); \
+#define log_warn(args, fmt, ...)                                      \
+    do                                                                \
+    {                                                                 \
+        if (DEBUG)                                                    \
+            print_log(1, TOOL_NAME ": %s: ", args, fmt, __VA_ARGS__); \
     } while (0)
 
-#define log_info(args, fmt, ...)                                  \
-    do                                                            \
-    {                                                             \
-        if (DEBUG)                                                \
-            print_log(2, "bpfcov: %s: ", args, fmt, __VA_ARGS__); \
+#define log_info(args, fmt, ...)                                      \
+    do                                                                \
+    {                                                                 \
+        if (DEBUG)                                                    \
+            print_log(2, TOOL_NAME ": %s: ", args, fmt, __VA_ARGS__); \
     } while (0)
 
-#define log_debu(args, fmt, ...)                                  \
-    do                                                            \
-    {                                                             \
-        if (DEBUG)                                                \
-            print_log(3, "bpfcov: %s: ", args, fmt, __VA_ARGS__); \
+#define log_debu(args, fmt, ...)                                      \
+    do                                                                \
+    {                                                                 \
+        if (DEBUG)                                                    \
+            print_log(3, TOOL_NAME ": %s: ", args, fmt, __VA_ARGS__); \
     } while (0)
 
 #define log_fata(args, fmt, ...)      \
@@ -228,7 +231,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         else if (strncmp(arg, "gen", 3) == 0)
         {
             args->command = &gen;
-            // gen_cmd(state);
+            gen_cmd(state);
         }
         else
         {
@@ -248,6 +251,8 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
             // This should never happen
             argp_error(state, "unexpected missing <program>");
         }
+        // TODO(leodido) > check it is an eBPF ELF
+        // TODO(leodido) > check it contains bpfcov instrumentation
         break;
 
     // Final validations, checks, and settings
@@ -286,7 +291,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
             argp_error(state, "could not create '%s'", prog_root_sane);
         }
         args->prog_root = prog_root_sane;
-        log_info(args, "creating root for map pins at '%s'\n", prog_root_sane);
+        log_info(args, "root directory for map pins at '%s'\n", prog_root_sane);
 
         // Create pinning path for the counters map
         char pin_profc[PATH_MAX];
@@ -324,18 +329,30 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         }
         args->pin[3] = pin_covmap_head;
 
-        // Check whether the map pinning paths already exist and unpin them in case they do exist
-        // Only if current subcommand is not `gen`
+        // Check whether the map pinning paths already exist
         bool is_gen = args->command == &gen;
+        bool is_run = args->command == &run;
         int p;
-        for (p = 0; p < NUM_PINNED_MAPS && !is_gen; p++)
+        for (p = 0; p < NUM_PINNED_MAPS; p++)
         {
             if (access(args->pin[p], F_OK) == 0)
             {
-                log_warn(args, "unpinning existing map '%s'\n", args->pin[p]);
-                if (unlink(args->pin[p]) != 0)
+                // Unpin them in case they do exist and the current subcommand is `run`
+                if (is_run)
                 {
-                    argp_error(state, "could not unpin map '%s'", args->pin[p]);
+                    log_warn(args, "unpinning existing map '%s'\n", args->pin[p]);
+                    if (unlink(args->pin[p]) != 0)
+                    {
+                        argp_error(state, "could not unpin map '%s'", args->pin[p]);
+                    }
+                }
+            }
+            else
+            {
+                // Error out in case the do not exist and the current subcommand is `gen`
+                if (is_gen)
+                {
+                    argp_error(state, "could not find map '%s'", args->pin[p]);
                 }
             }
         }
@@ -383,7 +400,7 @@ static struct argp_option run_opts[] = {
 };
 
 static char run_docs[] = "\n"
-                         "run\n"
+                         "Execute your bpfcov instrumented program.\n"
                          "\n";
 
 static struct argp run_argp = {
@@ -456,6 +473,96 @@ void run_cmd(struct argp_state *state)
     state->next += argc - 1;
 
     log_debu(args.parent, "end <run> (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+// CLI / bpfcov gen
+// --------------------------------------------------------------------------------------------------------------------
+
+struct gen_args
+{
+    struct root_args *parent;
+};
+
+static struct argp_option gen_opts[] = {
+    {0} // .
+};
+
+static char gen_docs[] = "\n"
+                         "Generate the profraw file for the bpfcov instrumented program.\n"
+                         "\n";
+
+static struct argp gen_argp = {
+    .options = gen_opts,
+    .parser = gen_parse,
+    .args_doc = "<program>",
+    .doc = gen_docs,
+};
+
+static error_t
+gen_parse(int key, char *arg, struct argp_state *state)
+{
+    struct gen_args *args = state->input;
+
+    assert(args);
+    assert(args->parent);
+
+    char str[2];
+    log_debu(args->parent, "parsing <gen> %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
+
+    switch (key)
+    {
+    case ARGP_KEY_ARG:
+        // NOTE > Collecting also other arguments/options even though they are not used to generate the pinning path
+        args->parent->program[state->arg_num] = arg;
+        break;
+
+    case ARGP_KEY_END:
+        if (args->parent->program[0] == NULL)
+        {
+            argp_error(state, "missing program argument");
+        }
+        if (access(args->parent->program[0], F_OK) != 0)
+        {
+            argp_error(state, "program '%s' does not actually exist", args->parent->program[0]);
+        }
+        break;
+
+    default:
+        log_debu(args->parent, "parsing <gen> UNKNOWN = '%s'\n", arg ? arg : "(null)");
+        return ARGP_ERR_UNKNOWN;
+    }
+
+    return 0;
+}
+
+void gen_cmd(struct argp_state *state)
+{
+    struct gen_args args = {};
+    int argc = state->argc - state->next + 1;
+    char **argv = &state->argv[state->next - 1];
+    char *argv0 = argv[0];
+
+    args.parent = state->input;
+
+    log_debu(args.parent, "begin <gen> (argc = %d, argv[0] = %s)\n", argc, argv[0]);
+
+    argv[0] = malloc(strlen(state->name) + strlen(" gen") + 1);
+    if (!argv[0])
+    {
+        argp_failure(state, 1, ENOMEM, 0);
+    }
+    sprintf(argv[0], "%s gen", state->name);
+
+    argp_parse(&gen_argp, argc, argv, ARGP_IN_ORDER, &argc, &args);
+
+    free(argv[0]);
+
+    argv[0] = argv0;
+
+    state->next += argc - 1;
+
+    log_debu(args.parent, "end <gen> (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
