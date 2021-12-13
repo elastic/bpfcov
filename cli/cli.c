@@ -107,7 +107,7 @@ int main(int argc, char **argv)
 }
 
 // --------------------------------------------------------------------------------------------------------------------
-// CLI / bpfcov ...
+// CLI / bpfcov
 // --------------------------------------------------------------------------------------------------------------------
 
 #define NUM_PINNED_MAPS 4
@@ -139,7 +139,7 @@ static struct argp_option root_opts[] = {
         ROOT_VERBOSITY_OPT_KEY,
         ROOT_VERBOSITY_OPT_ARG,
         OPTION_ARG_OPTIONAL,
-        "Set the verbosity level (defaults to 0)",
+        "Set the verbosity level when not built for release (defaults to 0)",
         -1
 
     },
@@ -282,6 +282,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
             argp_error(state, "could not create '%s'", prog_root_sane);
         }
         args->prog_root = prog_root_sane;
+        log_info(args, "creating root for map pins at '%s'\n", prog_root_sane);
 
         // Create pinning path for the counters map
         char pin_profc[PATH_MAX];
@@ -338,6 +339,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         break;
 
     default:
+        log_debu(args, "root: parsing UNKNOWN = '%s'\n", arg ? arg : "(null)");
         return ARGP_ERR_UNKNOWN;
     }
 
@@ -365,7 +367,7 @@ void root(int argc, char **argv)
 }
 
 // --------------------------------------------------------------------------------------------------------------------
-// CLI / bpfcov run ...
+// CLI / bpfcov run
 // --------------------------------------------------------------------------------------------------------------------
 
 struct run_args
@@ -410,9 +412,14 @@ run_parse(int key, char *arg, struct argp_state *state)
         {
             argp_error(state, "missing <program>");
         }
+        if (access(args->parent->program[0], F_OK) != 0)
+        {
+            argp_error(state, "program '%s' does not exist", args->parent->program[0]);
+        }
         break;
 
     default:
+        log_debu(args->parent, "run: parsing UNKNOWN = '%s'\n", arg ? arg : "(null)");
         return ARGP_ERR_UNKNOWN;
     }
 
@@ -553,6 +560,21 @@ static void replace_with(char *str, const char what, const char with)
 int run(struct root_args *args)
 {
     log_info(args, "executing program '%s'\n", args->program[0]);
+    log_info(args, "executing program '%s'\n", args->program + 1);
+
+    // pid_t pid = fork();
+    // switch (pid)
+    // {
+    // case -1: /* Error */
+    //     FATAL("%s", strerror(errno));
+    // case 0: /* Child */
+    //     if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) < 0)
+    //     {
+    //         FATAL("%s", strerror(errno));
+    //     }
+    //     execvp(argv[1], argv + 1);
+    //     FATAL("%s", strerror(errno));
+    // }
 
     return 0;
 }
