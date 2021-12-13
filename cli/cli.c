@@ -65,35 +65,39 @@ static void replace_with(char *str, const char what, const char with);
 // Logging
 // --------------------------------------------------------------------------------------------------------------------
 
-void print_log(int level, struct root_args *args, const char *fmt, ...);
+void print_log(int level, const char *prefix, struct root_args *args, const char *fmt, ...);
 
-#define log_erro(args, fmt, ...)                  \
-    do                                            \
-    {                                             \
-        if (DEBUG)                                \
-            print_log(0, args, fmt, __VA_ARGS__); \
+#define log_erro(args, fmt, ...)                                  \
+    do                                                            \
+    {                                                             \
+        if (DEBUG)                                                \
+            print_log(0, "bpfcov: %s: ", args, fmt, __VA_ARGS__); \
     } while (0)
 
-#define log_warn(args, fmt, ...)                  \
-    do                                            \
-    {                                             \
-        if (DEBUG)                                \
-            print_log(1, args, fmt, __VA_ARGS__); \
+#define log_warn(args, fmt, ...)                                  \
+    do                                                            \
+    {                                                             \
+        if (DEBUG)                                                \
+            print_log(1, "bpfcov: %s: ", args, fmt, __VA_ARGS__); \
     } while (0)
 
-#define log_info(args, fmt, ...)                  \
-    do                                            \
-    {                                             \
-        if (DEBUG)                                \
-            print_log(2, args, fmt, __VA_ARGS__); \
+#define log_info(args, fmt, ...)                                  \
+    do                                                            \
+    {                                                             \
+        if (DEBUG)                                                \
+            print_log(2, "bpfcov: %s: ", args, fmt, __VA_ARGS__); \
     } while (0)
 
-#define log_debu(args, fmt, ...)                  \
-    do                                            \
-    {                                             \
-        if (DEBUG)                                \
-            print_log(3, args, fmt, __VA_ARGS__); \
+#define log_debu(args, fmt, ...)                                  \
+    do                                                            \
+    {                                                             \
+        if (DEBUG)                                                \
+            print_log(3, "bpfcov: %s: ", args, fmt, __VA_ARGS__); \
     } while (0)
+
+#define log_fata(args, fmt, ...)      \
+    log_erro(args, fmt, __VA_ARGS__); \
+    exit(EXIT_FAILURE);
 
 // --------------------------------------------------------------------------------------------------------------------
 // Entrypoint
@@ -167,7 +171,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
     struct root_args *args = state->input;
 
     char str[2];
-    log_debu(args, "root: parsing %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
+    log_debu(args, "parsing <root> %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
 
     switch (key)
     {
@@ -328,7 +332,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             if (access(args->pin[p], F_OK) == 0)
             {
-                log_warn(args, "unpinning existing map '%s'", args->pin[p]);
+                log_warn(args, "unpinning existing map '%s'\n", args->pin[p]);
                 if (unlink(args->pin[p]) != 0)
                 {
                     argp_error(state, "could not unpin map '%s'", args->pin[p]);
@@ -339,7 +343,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         break;
 
     default:
-        log_debu(args, "root: parsing UNKNOWN = '%s'\n", arg ? arg : "(null)");
+        log_debu(args, "parsing <root> UNKNOWN = '%s'\n", arg ? arg : "(null)");
         return ARGP_ERR_UNKNOWN;
     }
 
@@ -360,7 +364,6 @@ void root(int argc, char **argv)
     else
     {
         fprintf(stderr, "TBD\n");
-        fprintf(stdout, "root: program = '%s'\n", this.program[0]);
         // run(&this);
         // gen(&this);
     }
@@ -399,7 +402,7 @@ run_parse(int key, char *arg, struct argp_state *state)
     assert(args->parent);
 
     char str[2];
-    log_debu(args->parent, "run: parsing %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
+    log_debu(args->parent, "parsing <run> %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
 
     switch (key)
     {
@@ -410,16 +413,16 @@ run_parse(int key, char *arg, struct argp_state *state)
     case ARGP_KEY_END:
         if (args->parent->program[0] == NULL)
         {
-            argp_error(state, "missing <program>");
+            argp_error(state, "missing program argument");
         }
         if (access(args->parent->program[0], F_OK) != 0)
         {
-            argp_error(state, "program '%s' does not exist", args->parent->program[0]);
+            argp_error(state, "program '%s' does not actually exist", args->parent->program[0]);
         }
         break;
 
     default:
-        log_debu(args->parent, "run: parsing UNKNOWN = '%s'\n", arg ? arg : "(null)");
+        log_debu(args->parent, "parsing <run> UNKNOWN = '%s'\n", arg ? arg : "(null)");
         return ARGP_ERR_UNKNOWN;
     }
 
@@ -435,7 +438,7 @@ void run_cmd(struct argp_state *state)
 
     args.parent = state->input;
 
-    log_debu(args.parent, "run: begin (argc = %d, argv[0] = %s)\n", argc, argv[0]);
+    log_debu(args.parent, "begin <run> (argc = %d, argv[0] = %s)\n", argc, argv[0]);
 
     argv[0] = malloc(strlen(state->name) + strlen(" run") + 1);
     if (!argv[0])
@@ -452,7 +455,7 @@ void run_cmd(struct argp_state *state)
 
     state->next += argc - 1;
 
-    log_debu(args.parent, "run: end (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
+    log_debu(args.parent, "end <run> (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -487,14 +490,23 @@ const char *argp_key(int key, char *str)
     return str;
 };
 
-void print_log(int level, struct root_args *args, const char *fmt, ...)
+void print_log(int level, const char *prefix, struct root_args *args, const char *fmt, ...)
 {
     if (args->verbosity < level)
     {
         return;
     }
 
-    const char *qual;
+    FILE *f = level == 0 ? stderr : stdout;
+    va_list argptr;
+    va_start(argptr, fmt);
+
+    if (!prefix || (prefix && !*prefix))
+    {
+        goto without_prefix;
+    }
+
+    char *qual = "unkn";
     switch (level)
     {
     case 0:
@@ -509,15 +521,11 @@ void print_log(int level, struct root_args *args, const char *fmt, ...)
     case 3:
         qual = "debu";
         break;
-    default:
-        qual = "unkn";
-        break;
     }
 
-    va_list argptr;
-    FILE *f = level == 0 ? stderr : stdout;
-    va_start(argptr, fmt);
     fprintf(f, "bpfcov: %s: ", qual);
+
+without_prefix:
     vfprintf(f, fmt, argptr);
     va_end(argptr);
 }
@@ -553,28 +561,161 @@ static void replace_with(char *str, const char what, const char with)
     }
 }
 
+static int get_pin_path(struct root_args *args, char *suffix, char **pin_path)
+{
+    if (strncmp(suffix, "profc", 5) == 0)
+    {
+        *pin_path = args->pin[0];
+        return 1;
+    }
+    else if (strncmp(suffix, "profd", 5) == 0)
+    {
+        *pin_path = args->pin[1];
+        return 1;
+    }
+    else if (strncmp(suffix, "profn", 5) == 0)
+    {
+        *pin_path = args->pin[2];
+        return 1;
+    }
+    else if (strncmp(suffix, "covmap_head", 11) == 0)
+    {
+        *pin_path = args->pin[3];
+        return 1;
+    }
+
+    return 0;
+}
+
 // --------------------------------------------------------------------------------------------------------------------
 // Implementation
 // --------------------------------------------------------------------------------------------------------------------
 
 int run(struct root_args *args)
 {
-    log_info(args, "executing program '%s'\n", args->program[0]);
-    log_info(args, "executing program '%s'\n", args->program + 1);
+    log_info(args, "run: executing program '%s'\n", args->program[0]);
 
-    // pid_t pid = fork();
-    // switch (pid)
-    // {
-    // case -1: /* Error */
-    //     FATAL("%s", strerror(errno));
-    // case 0: /* Child */
-    //     if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) < 0)
-    //     {
-    //         FATAL("%s", strerror(errno));
-    //     }
-    //     execvp(argv[1], argv + 1);
-    //     FATAL("%s", strerror(errno));
-    // }
+    pid_t pid = fork();
+    switch (pid)
+    {
+    case -1: /* Error */
+        log_fata(args, "run: %s\n", strerror(errno));
+    case 0: /* Child */
+        if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) < 0)
+        {
+            log_fata(args, "%s\n", strerror(errno));
+        }
+        execvp(args->program[0], args->program);
+        log_fata(args, "run: %s\n", strerror(errno));
+    }
+
+    /* Parent */
+    waitpid(pid, 0, 0); // sync with PTRACE_TRACEME
+    ptrace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_EXITKILL);
+
+    int is_map = 0;
+    for (;;)
+    {
+        /* Enter next system call */
+        if (ptrace(PTRACE_SYSCALL, pid, 0, 0) == -1)
+        {
+            log_fata(args, "run: %s\n", strerror(errno));
+        }
+        if (waitpid(pid, 0, 0) == -1)
+        {
+            log_fata(args, "run: %s\n", strerror(errno));
+        }
+
+        /* Gather system call arguments */
+        struct user_regs_struct regs;
+        if (ptrace(PTRACE_GETREGS, pid, 0, &regs) == -1)
+        {
+            log_fata(args, "run: %s\n", strerror(errno));
+        }
+
+        /* Mark bpf(BPF_MAP_CREATE, ...) */
+        const unsigned int sysc = regs.orig_rax;
+        const unsigned int comm = regs.rdi;
+        if (sysc == SYS_bpf && comm == BPF_MAP_CREATE)
+        {
+            is_map = 1;
+        }
+
+        /* Print a representation of the system call */
+        log_debu(args,
+                 "run: %d(%d, %ld, %ld, %ld, %ld, %ld)",
+                 sysc,
+                 comm, (long)regs.rsi, (long)regs.rdx, (long)regs.r10, (long)regs.r8, (long)regs.r9);
+
+        /* Run system call and stop on exit */
+        if (ptrace(PTRACE_SYSCALL, pid, 0, 0) == -1)
+        {
+            log_fata(args, "run: %s\n", strerror(errno));
+        }
+        if (waitpid(pid, 0, 0) == -1)
+        {
+            log_fata(args, "run: %s\n", strerror(errno));
+        }
+
+        /* Get system call result */
+        if (ptrace(PTRACE_GETREGS, pid, 0, &regs) == -1)
+        {
+            print_log(3, NULL, args, "%s\n", " = ?");
+            if (errno == ESRCH)
+            {
+                exit(regs.rdi); // _exit(2) or similar
+            }
+            log_fata(args, "run: %s\n", strerror(errno));
+        }
+
+        /* Print system call result */
+        long result = regs.rax;
+        print_log(3, NULL, args, " = %ld\n", result);
+
+        /* Pin the bpfcov maps */
+        if (is_map && result)
+        {
+            int pidfd = syscall(SYS_pidfd_open, pid, 0);
+            if (pidfd < 0)
+            {
+                continue;
+            }
+            int curfd = syscall(SYS_pidfd_getfd, pidfd, result, 0);
+            if (curfd < 0)
+            {
+                continue;
+            }
+
+            struct bpf_map_info map_info = {};
+            memset(&map_info, 0, sizeof(map_info));
+            unsigned int len = sizeof(map_info);
+
+            int err;
+            err = bpf_obj_get_info_by_fd(curfd, &map_info, &len);
+            if (!err && strlen(map_info.name) > 0)
+            {
+                log_info(args, "run: got info about map '%s'\n", map_info.name);
+
+                char map_name[BPF_OBJ_NAME_LEN];
+                strcpy(map_name, map_info.name);
+
+                const char *sep = ".";
+                strtok(map_info.name, sep);
+                char *suffix = strtok(NULL, sep);
+
+                char *pin_path = "";
+                if (get_pin_path(args, suffix, &pin_path))
+                {
+                    log_warn(args, "run: pinning map '%s' to '%s'\n", map_name, pin_path);
+                    err = bpf_obj_pin(curfd, pin_path);
+                }
+                if (err)
+                {
+                    log_fata(args, "run: %s\n", "could not pin map");
+                }
+            }
+        }
+    }
 
     return 0;
 }
