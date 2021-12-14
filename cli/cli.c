@@ -977,6 +977,13 @@ int gen(struct root_args *args)
     fwrite(&ipvk_last, 1, sizeof(ipvk_last), outfp);
 
     /* Write the data part */
+    log_info(args, "%s\n", "about to write the profraw data...");
+    void *profd_data = malloc(profd_info.value_size);
+    if (get_global_data(bpf_obj_get(args->pin[1]), &profd_info, profd_data))
+    {
+        log_fata(args, "could not get global data from map '%s'\n", args->pin[1]);
+    }
+    fwrite(profd_data, profd_info.value_size, 1, outfp);
 
     /* Write the counters part */
 
