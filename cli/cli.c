@@ -721,6 +721,55 @@ static int get_pin_path(struct root_args *args, char *suffix, char **pin_path)
     return 0;
 }
 
+static int get_map_info(int fd, struct bpf_map_info *info)
+{
+    unsigned int size = sizeof(*info);
+    memset(info, 0, size);
+    return bpf_obj_get_info_by_fd(fd, info, &size);
+    // TODO(leodido) ? close fd if above fails?
+}
+
+static int get_global_data(int fd, struct bpf_map_info *info, void *data)
+{
+    int err;
+    void *k, *v;
+    k = malloc(info->key_size);
+    v = malloc(info->value_size);
+    if (!k || !v)
+    {
+        err = -1;
+        goto error_out;
+    }
+    if (!info)
+    {
+        err = -1;
+        goto error_out;
+    }
+    if (info->max_entries > 1)
+    {
+        err = -1;
+        goto error_out;
+    }
+
+    err = bpf_map_get_next_key(fd, NULL, k);
+    if (err)
+    {
+        goto error_out;
+    }
+    err = bpf_map_lookup_elem(fd, k, v);
+    if (err)
+    {
+        goto error_out;
+    }
+    memcpy(data, v, info->value_size);
+
+error_out:
+    free(k);
+    free(v);
+    close(fd);
+    return err;
+}
+
 // --------------------------------------------------------------------------------------------------------------------
 // Implementation
 // --------------------------------------------------------------------------------------------------------------------
@@ -858,9 +907,74 @@ int gen(struct root_args *args)
 {
     log_info(args, "generating '%s' for program '%s'\n", args->output, args->program[0]);
 
+    /* Get maps info */
+    struct bpf_map_info profc_info = {};
+    if (get_map_info(bpf_obj_get(args->pin[0]), &profc_info))
+    {
+        log_fata(args, "could not get info about pinned map '%s'\n", args->pin[0]);
+    }
+    struct bpf_map_info profd_info = {};
+    if (get_map_info(bpf_obj_get(args->pin[1]), &profd_info))
+    {
+        log_fata(args, "could not get info about pinned map '%s'\n", args->pin[1]);
+    }
+    struct bpf_map_info profn_info = {};
+    if (get_map_info(bpf_obj_get(args->pin[2]), &profn_info))
+    {
+        log_fata(args, "could not get info about pinned map '%s'\n", args->pin[2]);
+    }
+    struct bpf_map_info covmap_info = {};
+    if (get_map_info(bpf_obj_get(args->pin[3]), &covmap_info))
+    {
+        log_fata(args, "could not get info about pinned map '%s'\n", args->pin[3]);
+    }
+
+    /* Time to write binary data to the output file */
+    FILE *outfp = fopen(args->output, "wb");
+    if (!outfp)
+    {
+        log_fata(args, "could not open the output file '%s'\n", args->output);
+    }
+
     /* Write the header */
+    log_info(args, "%s\n", "about to write the profraw header...");
     // Magic number
-    // char magic[8] = {0x81, 0x72, 0x66, 0x6F, 0x72, 0x70, 0x6C, 0xFF};
+    char magic[8] = {0x81, 0x72, 0x66, 0x6F, 0x72, 0x70, 0x6C, 0xFF};
+    fwrite(magic, 1, sizeof(magic), outfp);
+    // Version
+    void *covmap_data = malloc(covmap_info.value_size);
+    if (get_global_data(bpf_obj_get(args->pin[3]), &covmap_info, covmap_data))
+    {
+        log_fata(args, "could not get global data from map '%s'\n", args->pin[3]);
+    }
+    long long int version = 0;
+    memcpy(&version, &((char *)covmap_data)[12], 4); // Version is the 3rd int in the coverage mapping header
+    version += 1;                                    // Version is 0 indexed
+    fwrite(&version, 1, sizeof(version), outfp);
+    free(covmap_data);
+    // Data size
+    long long int func_num = profd_info.value_size / 48; // 5 x i64 + 2 x i32 for each function
+    fwrite(&func_num, 1, sizeof(func_num), outfp);
+    // Padding before counters
+    long long int pad_bef = 0;
+    fwrite(&pad_bef, 1, sizeof(pad_bef), outfp);
+    // Counters size
+    long long int counters_num = profc_info.value_size / 8; // 1 x i64 for each counter element
+    fwrite(&counters_num, 1, sizeof(counters_num), outfp);
+    // Padding after counters
+    long long int pad_aft = 0;
+    fwrite(&pad_aft, 1, sizeof(pad_aft), outfp);
+    // Names size
+    fwrite(&profn_info.value_size, 1, sizeof(profn_info.value_size) * 2, outfp);
+    // Counters delta (nulled)
+    long long int counters_delta = 0;
+    fwrite(&counters_delta, 1, sizeof(counters_delta), outfp);
+    // Names delta (nulled)
+    long long int names_delta = 0;
+    fwrite(&names_delta, 1, sizeof(names_delta), outfp);
+    // IPVK last
+    long long int ipvk_last = 1;
+    fwrite(&ipvk_last, 1, sizeof(ipvk_last), outfp);
 
     /* Write the data part */
 
@@ -914,6 +1028,9 @@ int gen(struct root_args *args)
     // int ret = bpf_map_lookup_elem(profd_fd, &key, &val);
 
     // log_info(args, "fd: l->(%u):%u ret:(%d,%s)\n", key, val, ret, strerror(errno));
+
+cleanup:
+    fclose(outfp);
 
     return 0;
 }
