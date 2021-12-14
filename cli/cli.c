@@ -945,6 +945,7 @@ int gen(struct root_args *args)
     void *covmap_data = malloc(covmap_info.value_size);
     if (get_global_data(bpf_obj_get(args->pin[3]), &covmap_info, covmap_data))
     {
+        fclose(outfp);
         log_fata(args, "could not get global data from map '%s'\n", args->pin[3]);
     }
     long long int version = 0;
@@ -981,6 +982,7 @@ int gen(struct root_args *args)
     void *profd_data = malloc(profd_info.value_size);
     if (get_global_data(bpf_obj_get(args->pin[1]), &profd_info, profd_data))
     {
+        fclose(outfp);
         log_fata(args, "could not get global data from map '%s'\n", args->pin[1]);
     }
     fwrite(profd_data, profd_info.value_size, 1, outfp);
@@ -990,60 +992,29 @@ int gen(struct root_args *args)
     void *profc_data = malloc(profc_info.value_size);
     if (get_global_data(bpf_obj_get(args->pin[0]), &profc_info, profc_data))
     {
+        fclose(outfp);
         log_fata(args, "could not get global data from map '%s'\n", args->pin[0]);
     }
     fwrite(profc_data, profc_info.value_size, 1, outfp);
 
     /* Write the names part */
+    log_info(args, "%s\n", "about to write the names in the profraw...");
+    void *profn_data = malloc(profn_info.value_size);
+    if (get_global_data(bpf_obj_get(args->pin[2]), &profn_info, profn_data))
+    {
+        fclose(outfp);
+        log_fata(args, "could not get global data from map '%s'\n", args->pin[2]);
+    }
+    fwrite(profn_data, profn_info.value_size, 1, outfp);
 
-    // int profd_fd = bpf_obj_get(args->pin[1]);
-    // log_info(args, "fd: %d (%s)\n", profd_fd, strerror(errno));
+    /* Align to 8 bytes */
+    unsigned int b = 0;
+    for (unsigned int p = b; p < (7 & (16 - profn_info.value_size % 16)); p++)
+    {
+        fwrite(&b, 1, 1, outfp);
+    }
 
-    // struct bpf_map_info profd_map_info = {};
-    // memset(&profd_map_info, 0, sizeof(profd_map_info));
-    // unsigned int len = sizeof(profd_map_info);
-
-    // int err;
-    // err = bpf_obj_get_info_by_fd(profd_fd, &profd_map_info, &len);
-    // if (!err)
-    // {
-    //     void *key = malloc(profd_map_info.key_size);
-    //     void *val = malloc(profd_map_info.value_size);
-    //     // TODO > if (!key || !val) { ... }
-    //     void *pkey;
-
-    //     // long long int data_sz = profd_map_info.value_size / 48;
-
-    //     for (;;)
-    //     {
-    //         err = bpf_map_get_next_key(profd_fd, pkey, key);
-    //         if (err)
-    //         {
-    //             if (errno == ENOENT)
-    //             {
-    //                 err = 0;
-    //             }
-    //             break;
-    //         }
-    //         bpf_map_lookup_elem(profd_fd, key, val);
-    //         unsigned int i;
-    //         for (i = 0; i < profd_map_info.value_size; i++)
-    //         {
-    //             printf("%02x", ((char *)val)[i]);
-    //         }
-    //         pkey = key;
-    //     }
-    // }
-
-    // TODO >> SEE BPFTOOL MAP DUMP SOURCE
-
-    // const long long int key = 0;
-    // void* val = 0;
-    // int ret = bpf_map_lookup_elem(profd_fd, &key, &val);
-
-    // log_info(args, "fd: l->(%u):%u ret:(%d,%s)\n", key, val, ret, strerror(errno));
-
-cleanup:
+    /* Close */
     fclose(outfp);
 
     return 0;
