@@ -434,6 +434,8 @@ namespace
                         /*Name=*/Name + ".0",
                         /*InsertBefore=*/GV);
                     GV0->setDSOLocal(true);
+                    GV0->setSection(GV->getSection());
+                    GV0->setAlignment(MaybeAlign(4));
 
                     Changed = true;
 
@@ -462,6 +464,7 @@ namespace
                         /*InsertBefore=*/GV);
                     GV1->setDSOLocal(true);
                     GV1->setAlignment(MaybeAlign(1));
+                    GV1->setSection(GV->getSection());
 
                     appendToUsed(M, GV1);
 
@@ -741,7 +744,7 @@ bool BPFCov::runOnModule(Module &M)
     instrumented |= convertStructs(M);
     instrumented |= annotateCounters(M);
     instrumented |= swapSectionWithPrefix(M, "__llvm_prf_data", ".rodata.profd");
-    instrumented |= swapSectionWithPrefix(M, "__llvm_prf", "");
+    instrumented |= swapSectionWithPrefix(M, "__llvm_covmap", ".rodata.covmap");
 
     return instrumented;
 }
