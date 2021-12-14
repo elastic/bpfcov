@@ -966,7 +966,8 @@ int gen(struct root_args *args)
     long long int pad_aft = 0;
     fwrite(&pad_aft, 1, sizeof(pad_aft), outfp);
     // Names size
-    fwrite(&profn_info.value_size, 1, sizeof(profn_info.value_size) * 2, outfp);
+    long long int names_sz = profn_info.value_size;
+    fwrite(&names_sz, 1, sizeof(names_sz), outfp);
     // Counters delta (nulled)
     long long int counters_delta = 0;
     fwrite(&counters_delta, 1, sizeof(counters_delta), outfp);
