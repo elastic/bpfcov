@@ -121,6 +121,7 @@ int main(int argc, char **argv)
 
 struct root_args
 {
+    char *output;
     char *bpffs;
     char *cov_root;
     char *prog_root;
@@ -182,7 +183,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
     // Initialization
     case ARGP_KEY_INIT:
         args->bpffs = "/sys/fs/bpf";
-        args->verbosity = 0;
+        // args->verbosity = 0; // It needs to be set before the parsing starts
         args->command = NULL;
         args->program = calloc(PATH_MAX, sizeof(char *));
         break;
@@ -288,7 +289,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
             argp_error(state, "program root path too long");
         }
         char *prog_root_sane = strdup(prog_root);
-        replace_with(prog_root_sane, '.', '_');
+        replace_with(prog_root_sane, '.', '_'); // Sanitize because BPF FS doesn't accept dots
         if (is_run && mkdir(prog_root_sane, 0700) && errno != EEXIST)
         {
             argp_error(state, "could not create '%s'", prog_root_sane);
@@ -353,7 +354,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
                 // Error out in case the do not exist and the current subcommand is `gen`
                 if (is_gen)
                 {
-                    argp_error(state, "could not find map '%s'", args->pin[p]);
+                    argp_error(state, "could not access map '%s'", args->pin[p]);
                 }
             }
         }
@@ -429,7 +430,7 @@ run_parse(int key, char *arg, struct argp_state *state)
         break;
 
     case ARGP_KEY_END:
-        if (args->parent->program[0] == NULL)
+        if (!args->parent->program[0])
         {
             argp_error(state, "missing program argument");
         }
@@ -485,7 +486,13 @@ struct gen_args
     struct root_args *parent;
 };
 
+const char GEN_OUTPUT_OPT_KEY = 'o';
+const char GEN_OUTPUT_OPT_LONG[] = "output";
+const char GEN_OUTPUT_OPT_ARG[] = "path";
+
 static struct argp_option gen_opts[] = {
+    {"OPTIONS:", 0, 0, OPTION_DOC, 0, 0},
+    {GEN_OUTPUT_OPT_LONG, GEN_OUTPUT_OPT_KEY, GEN_OUTPUT_OPT_ARG, 0, "Set the output path\n(defaults to <program>.profraw)", 1},
     {0} // .
 };
 
@@ -513,19 +520,38 @@ gen_parse(int key, char *arg, struct argp_state *state)
 
     switch (key)
     {
+    case GEN_OUTPUT_OPT_KEY:
+        if (strlen(arg) > 0)
+        {
+            args->parent->output = arg;
+            break;
+        }
+        argp_error(state, "option '--%s' requires a %s", GEN_OUTPUT_OPT_LONG, GEN_OUTPUT_OPT_ARG);
+        break;
+
     case ARGP_KEY_ARG:
         // NOTE > Collecting also other arguments/options even though they are not used to generate the pinning path
         args->parent->program[state->arg_num] = arg;
         break;
 
     case ARGP_KEY_END:
-        if (args->parent->program[0] == NULL)
+        if (!args->parent->program[0])
         {
             argp_error(state, "missing program argument");
         }
         if (access(args->parent->program[0], F_OK) != 0)
         {
             argp_error(state, "program '%s' does not actually exist", args->parent->program[0]);
+        }
+        if (!args->parent->output)
+        {
+            char output_path[PATH_MAX];
+            int output_path_len = snprintf(output_path, PATH_MAX, "%s.%s", args->parent->program[0], "profraw");
+            if (output_path_len >= PATH_MAX)
+            {
+                argp_error(state, "output path too long");
+            }
+            args->parent->output = output_path;
         }
         break;
 
@@ -830,7 +856,64 @@ int run(struct root_args *args)
 
 int gen(struct root_args *args)
 {
-    log_info(args, "generating from program '%s'\n", args->program[0]);
+    log_info(args, "generating '%s' for program '%s'\n", args->output, args->program[0]);
+
+    /* Write the header */
+    // Magic number
+    // char magic[8] = {0x81, 0x72, 0x66, 0x6F, 0x72, 0x70, 0x6C, 0xFF};
+
+    /* Write the data part */
+
+    /* Write the counters part */
+
+    /* Write the names part */
+
+    // int profd_fd = bpf_obj_get(args->pin[1]);
+    // log_info(args, "fd: %d (%s)\n", profd_fd, strerror(errno));
+
+    // struct bpf_map_info profd_map_info = {};
+    // memset(&profd_map_info, 0, sizeof(profd_map_info));
+    // unsigned int len = sizeof(profd_map_info);
+
+    // int err;
+    // err = bpf_obj_get_info_by_fd(profd_fd, &profd_map_info, &len);
+    // if (!err)
+    // {
+    //     void *key = malloc(profd_map_info.key_size);
+    //     void *val = malloc(profd_map_info.value_size);
+    //     // TODO > if (!key || !val) { ... }
+    //     void *pkey;
+
+    //     // long long int data_sz = profd_map_info.value_size / 48;
+
+    //     for (;;)
+    //     {
+    //         err = bpf_map_get_next_key(profd_fd, pkey, key);
+    //         if (err)
+    //         {
+    //             if (errno == ENOENT)
+    //             {
+    //                 err = 0;
+    //             }
+    //             break;
+    //         }
+    //         bpf_map_lookup_elem(profd_fd, key, val);
+    //         unsigned int i;
+    //         for (i = 0; i < profd_map_info.value_size; i++)
+    //         {
+    //             printf("%02x", ((char *)val)[i]);
+    //         }
+    //         pkey = key;
+    //     }
+    // }
+
+    // TODO >> SEE BPFTOOL MAP DUMP SOURCE
+
+    // const long long int key = 0;
+    // void* val = 0;
+    // int ret = bpf_map_lookup_elem(profd_fd, &key, &val);
+
+    // log_info(args, "fd: l->(%u):%u ret:(%d,%s)\n", key, val, ret, strerror(errno));
 
     return 0;
 }
