@@ -63,6 +63,7 @@ int gen(struct root_args *args);
 static bool is_bpffs(char *bpffs_path);
 static void strip_trailing_char(char *str, char c);
 static void replace_with(char *str, const char what, const char with);
+static void handle_map_pins(struct root_args *args, struct argp_state *state, bool unpin);
 
 // --------------------------------------------------------------------------------------------------------------------
 // Logging
@@ -121,6 +122,7 @@ int main(int argc, char **argv)
 
 struct root_args
 {
+    bool unpin;
     char *output;
     char *bpffs;
     char *cov_root;
@@ -186,6 +188,8 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         // args->verbosity = 0; // It needs to be set before the parsing starts
         args->command = NULL;
         args->program = calloc(PATH_MAX, sizeof(char *));
+        args->output = NULL;
+        args->unpin = false;
         break;
 
     case ROOT_BPFFS_OPT_KEY:
@@ -258,7 +262,6 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
 
     // Final validations, checks, and settings
     case ARGP_KEY_FINI:
-        bool is_gen = args->command == &gen;
         bool is_run = args->command == &run;
 
         // Check the BPF filesystem
@@ -333,31 +336,10 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         }
         args->pin[3] = pin_covmap;
 
-        // Check whether the map pinning paths already exist
-        int p;
-        for (p = 0; p < NUM_PINNED_MAPS; p++)
-        {
-            if (access(args->pin[p], F_OK) == 0)
-            {
-                // Unpin them in case they do exist and the current subcommand is `run`
-                if (is_run)
-                {
-                    log_warn(args, "unpinning existing map '%s'\n", args->pin[p]);
-                    if (unlink(args->pin[p]) != 0)
-                    {
-                        argp_error(state, "could not unpin map '%s'", args->pin[p]);
-                    }
-                }
-            }
-            else
-            {
-                // Error out in case the do not exist and the current subcommand is `gen`
-                if (is_gen)
-                {
-                    argp_error(state, "could not access map '%s'", args->pin[p]);
-                }
-            }
-        }
+        // Check whether the map pinning paths already exist:
+        // - unpin them in case they do exist and the current subcommand is `run`
+        // - error out in case the do not exist and the current subcommand is `gen`
+        handle_map_pins(args, state, is_run);
 
         break;
 
@@ -489,10 +471,13 @@ struct gen_args
 const char GEN_OUTPUT_OPT_KEY = 'o';
 const char GEN_OUTPUT_OPT_LONG[] = "output";
 const char GEN_OUTPUT_OPT_ARG[] = "path";
+const char GEN_UNPIN_OPT_KEY = 0x81;
+const char GEN_UNPIN_OPT_LONG[] = "unpin";
 
 static struct argp_option gen_opts[] = {
     {"OPTIONS:", 0, 0, OPTION_DOC, 0, 0},
     {GEN_OUTPUT_OPT_LONG, GEN_OUTPUT_OPT_KEY, GEN_OUTPUT_OPT_ARG, 0, "Set the output path\n(defaults to <program>.profraw)", 1},
+    {GEN_UNPIN_OPT_LONG, GEN_UNPIN_OPT_KEY, 0, 0, "Unpin the maps", 0},
     {0} // .
 };
 
@@ -527,6 +512,10 @@ gen_parse(int key, char *arg, struct argp_state *state)
             break;
         }
         argp_error(state, "option '--%s' requires a %s", GEN_OUTPUT_OPT_LONG, GEN_OUTPUT_OPT_ARG);
+        break;
+
+    case GEN_UNPIN_OPT_KEY:
+        args->parent->unpin = true;
         break;
 
     case ARGP_KEY_ARG:
@@ -692,6 +681,46 @@ static void replace_with(char *str, const char what, const char with)
             *str = with;
         }
         str++;
+    }
+}
+
+static void handle_map_pins(struct root_args *args, struct argp_state *state, bool unpin)
+{
+    int p;
+    for (p = 0; p < NUM_PINNED_MAPS; p++)
+    {
+        if (access(args->pin[p], F_OK) == 0)
+        {
+            if (unpin)
+            {
+                log_warn(args, "unpinning existing map '%s'\n", args->pin[p]);
+                if (unlink(args->pin[p]) != 0)
+                {
+                    if (state)
+                    {
+                        argp_error(state, "could not unpin map '%s'", args->pin[p]);
+                    }
+                    else
+                    {
+                        log_fata(args, "could not unpin map '%s'\n", args->pin[p]);
+                    }
+                }
+            }
+        }
+        else
+        {
+            if (!unpin)
+            {
+                if (state)
+                {
+                    argp_error(state, "could not access map '%s'", args->pin[p]);
+                }
+                else
+                {
+                    log_fata(args, "could not access map '%s'\n", args->pin[p]);
+                }
+            }
+        }
     }
 }
 
@@ -1017,6 +1046,9 @@ int gen(struct root_args *args)
 
     /* Close */
     fclose(outfp);
+
+    /* Unpin the maps */
+    handle_map_pins(args, NULL, args->unpin);
 
     return 0;
 }
