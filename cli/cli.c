@@ -257,6 +257,9 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
 
     // Final validations, checks, and settings
     case ARGP_KEY_FINI:
+        bool is_gen = args->command == &gen;
+        bool is_run = args->command == &run;
+
         // Check the BPF filesystem
         if (!is_bpffs(args->bpffs))
         {
@@ -270,7 +273,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             argp_error(state, "coverage root path too long");
         }
-        if (mkdir(cov_root, 0700) && errno != EEXIST)
+        if (is_run && mkdir(cov_root, 0700) && errno != EEXIST)
         {
             argp_error(state, "could not create '%s'", cov_root);
         }
@@ -286,7 +289,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         }
         char *prog_root_sane = strdup(prog_root);
         replace_with(prog_root_sane, '.', '_');
-        if (mkdir(prog_root_sane, 0700) && errno != EEXIST)
+        if (is_run && mkdir(prog_root_sane, 0700) && errno != EEXIST)
         {
             argp_error(state, "could not create '%s'", prog_root_sane);
         }
@@ -321,17 +324,15 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         args->pin[2] = pin_profn;
 
         // Create pinning path for the coverage mapping header
-        char pin_covmap_head[PATH_MAX];
-        int pin_covmap_head_len = snprintf(pin_covmap_head, PATH_MAX, "%s/%s", prog_root_sane, "covmap_head");
-        if (pin_covmap_head_len >= PATH_MAX)
+        char pin_covmap[PATH_MAX];
+        int pin_covmap_len = snprintf(pin_covmap, PATH_MAX, "%s/%s", prog_root_sane, "covmap");
+        if (pin_covmap_len >= PATH_MAX)
         {
             argp_error(state, "coverage mapping header path too long");
         }
-        args->pin[3] = pin_covmap_head;
+        args->pin[3] = pin_covmap;
 
         // Check whether the map pinning paths already exist
-        bool is_gen = args->command == &gen;
-        bool is_run = args->command == &run;
         int p;
         for (p = 0; p < NUM_PINNED_MAPS; p++)
         {
@@ -685,7 +686,7 @@ static int get_pin_path(struct root_args *args, char *suffix, char **pin_path)
         *pin_path = args->pin[2];
         return 1;
     }
-    else if (strncmp(suffix, "covmap_head", 11) == 0)
+    else if (strncmp(suffix, "covmap", 6) == 0)
     {
         *pin_path = args->pin[3];
         return 1;
