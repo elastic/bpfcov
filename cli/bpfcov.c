@@ -256,8 +256,6 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
             // This should never happen
             argp_error(state, "unexpected missing <program>");
         }
-        // TODO(leodido) > check it is an eBPF ELF
-        // TODO(leodido) > check it contains bpfcov instrumentation
         break;
 
     // Final validations, checks, and settings
@@ -364,7 +362,7 @@ void root(int argc, char **argv)
     }
     else
     {
-        fprintf(stderr, "TBD\n");
+        log_fata(NULL, "%s\n", "not implemented yet");
         // run(&this);
         // gen(&this);
     }
@@ -629,24 +627,24 @@ void print_log(int level, const char *prefix, struct root_args *args, const char
         goto without_prefix;
     }
 
-    char *qual = "unkn";
+    char *category = "unkn";
     switch (level)
     {
     case 0:
-        qual = "erro";
+        category = "erro";
         break;
     case 1:
-        qual = "warn";
+        category = "warn";
         break;
     case 2:
-        qual = "info";
+        category = "info";
         break;
     case 3:
-        qual = "debu";
+        category = "debu";
         break;
     }
 
-    fprintf(f, "bpfcov: %s: ", qual);
+    fprintf(f, "bpfcov: %s: ", category);
 
 without_prefix:
     vfprintf(f, fmt, argptr);
@@ -752,10 +750,15 @@ static int get_pin_path(struct root_args *args, char *suffix, char **pin_path)
 
 static int get_map_info(int fd, struct bpf_map_info *info)
 {
+    int err;
     unsigned int size = sizeof(*info);
     memset(info, 0, size);
-    return bpf_obj_get_info_by_fd(fd, info, &size);
-    // TODO(leodido) ? close fd if above fails?
+    err = bpf_obj_get_info_by_fd(fd, info, &size);
+    if (err)
+    {
+        close(fd);
+    }
+    return err;
 }
 
 static int get_global_data(int fd, struct bpf_map_info *info, void *data)
@@ -833,6 +836,8 @@ int run(struct root_args *args)
         {
             log_fata(args, "run: %s\n", strerror(errno));
         }
+
+        /* Waiting for PID to die */
         if (waitpid(pid, 0, 0) == -1)
         {
             log_fata(args, "run: %s\n", strerror(errno));
@@ -861,6 +866,8 @@ int run(struct root_args *args)
         {
             log_fata(args, "run: %s\n", strerror(errno));
         }
+
+        /* Waiting for PID to die */
         if (waitpid(pid, 0, 0) == -1)
         {
             log_fata(args, "run: %s\n", strerror(errno));
@@ -894,6 +901,7 @@ int run(struct root_args *args)
             {
                 continue;
             }
+            close(pidfd);
 
             struct bpf_map_info map_info = {};
             int err;
