@@ -848,10 +848,7 @@ int run(struct root_args *args)
         /* Mark bpf(BPF_MAP_CREATE, ...) */
         const unsigned int sysc = regs.orig_rax;
         const unsigned int comm = regs.rdi;
-        if (sysc == SYS_bpf && comm == BPF_MAP_CREATE)
-        {
-            is_map = 1;
-        }
+        is_map = (sysc == SYS_bpf && comm == BPF_MAP_CREATE);
 
         /* Print a representation of the system call */
         log_debu(args,
@@ -899,11 +896,8 @@ int run(struct root_args *args)
             }
 
             struct bpf_map_info map_info = {};
-            memset(&map_info, 0, sizeof(map_info));
-            unsigned int len = sizeof(map_info);
-
             int err;
-            err = bpf_obj_get_info_by_fd(curfd, &map_info, &len);
+            err = get_map_info(curfd, &map_info);
             if (!err && strlen(map_info.name) > 0)
             {
                 log_info(args, "run: got info about map '%s'\n", map_info.name);
@@ -918,12 +912,17 @@ int run(struct root_args *args)
                 char *pin_path = "";
                 if (get_pin_path(args, suffix, &pin_path))
                 {
-                    log_warn(args, "run: pinning map '%s' to '%s'\n", map_name, pin_path);
                     err = bpf_obj_pin(curfd, pin_path);
-                }
-                if (err)
-                {
-                    log_fata(args, "run: %s\n", "could not pin map");
+                    if (err)
+                    {
+                        if (errno == EEXIST)
+                        {
+                            log_warn(args, "run: pin '%s' already exists for map '%s'\n", pin_path, map_name);
+                            continue;
+                        }
+                        log_fata(args, "run: %s\n", "could not pin map");
+                    }
+                    log_warn(args, "run: pin map '%s' to '%s'\n", map_name, pin_path);
                 }
             }
         }

@@ -83,17 +83,16 @@ $(OUTPUT)/%.bpf.o: %.bpf.c $(wildcard %.h) $(VMLINUX) $(LIBBPF_OBJ) | $(OUTPUT)
 		-o $@
 
 # Obtain the LLVM IR instrumenting profiling and coverage mappings
-# -fprofile-instr-generate -mllvm -enable-name-compression=false -fcoverage-mapping
 $(OUTPUT)/%.bpf.ll: %.bpf.c $(wildcard %.h) $(VMLINUX) $(LIBBPF_OBJ) | $(OUTPUT)
 	$(call msg,LL,$@)
 	$(Q)$(CLANG) -g -O2 \
 		-target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
-		-fprofile-instr-generate -mllvm -enable-name-compression=false -fcoverage-mapping \
+		-fprofile-instr-generate -fcoverage-mapping \
 		-emit-llvm -S \
 		-c $(filter %.c,$^) \
 		-o $@
 
-# Create the object file for coverage (not for loading)
+# Create the object file for coverage (not for loading, only for llvm-cov)
 $(OUTPUT)/%.bpf.cov.obj: $(OUTPUT)/%.bpf.ll | $(OUTPUT)
 	$(call msg,COV.OBJ,$@)
 	$(Q)$(OPT) \
