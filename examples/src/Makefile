@@ -11,12 +11,12 @@ LIBBPF_SRC := $(abspath $(LIBBPF_DIR)/src)
 LIBBPF_OBJ := $(abspath $(OUTPUT)/libbpf.a)
 VMLINUX := $(abspath $(OUTPUT)/vmlinux/vmlinux.h)
 INCLUDES := -I$(OUTPUT) -I$(LIBBPF_DIR)/include/uapi -I$(dir $(VMLINUX))
+ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 CLANG_BPF_SYS_INCLUDES = $(shell $(CLANG) -v -E - </dev/null 2>&1 \
 	| sed -n '/<...> search starts here:/,/End of search list./{ s| \(/.*\)|-idirafter \1|p }')
-ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 # List your examples here
-EXAMPLES = raw_enter
+EXAMPLES = raw_enter fentry
 
 ifeq ($(V),1)
 	Q =
@@ -46,7 +46,7 @@ clean:
 	$(call msg,CLEAN)
 	$(Q)rm -rf $(OUTPUT)/*.bpf.{o,ll,cov.o,cov.ll}
 	$(Q)rm -rf $(OUTPUT)/*.skel.{h,cov.h}
-	$(Q)rm -rf $(OUTPUT)/*.cov.{o,c} $(OUTPUT)/*.o
+	$(Q)rm -rf $(OUTPUT)/*.cov.{o,c,obj} $(OUTPUT)/*.o $(OUTPUT)/*.cov
 	$(Q)rm -rf $(BINARIES)
 
 # Create output directory
@@ -82,27 +82,33 @@ $(OUTPUT)/%.bpf.o: %.bpf.c $(wildcard %.h) $(VMLINUX) $(LIBBPF_OBJ) | $(OUTPUT)
 		-c $(filter %.c,$^) \
 		-o $@
 
-# Obtain the LLVM IR
-# FIXME(leodido) > Why not compiling directly with -O2?
+# Obtain the LLVM IR instrumenting profiling and coverage mappings
+# -fprofile-instr-generate -mllvm -enable-name-compression=false -fcoverage-mapping
 $(OUTPUT)/%.bpf.ll: %.bpf.c $(wildcard %.h) $(VMLINUX) $(LIBBPF_OBJ) | $(OUTPUT)
 	$(call msg,LL,$@)
 	$(Q)$(CLANG) -g -O2 \
 		-target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		-fprofile-instr-generate -mllvm -enable-name-compression=false -fcoverage-mapping \
 		-emit-llvm -S \
 		-c $(filter %.c,$^) \
 		-o $@
 
-# Instrument the coverage along with the O2 pipeline
-# $(Q)$(OPT) -load $(BPFCOVLIB_DIR)/libBPFCov.so --bpf-cov -S $< -o $@
-# TODO(leodido) > Make a variable to disable coverage
+# Create the object file for coverage (not for loading)
+$(OUTPUT)/%.bpf.cov.obj: $(OUTPUT)/%.bpf.ll | $(OUTPUT)
+	$(call msg,COV.OBJ,$@)
+	$(Q)$(OPT) \
+		-load $(BPFCOVLIB_DIR)/libBPFCov.so -strip-initializers-only -bpf-cov $< \
+		| $(LLC) -march=bpf -filetype=obj -o $@
+
+# Make the LLVM IR valid for eBPF
 $(OUTPUT)/%.bpf.cov.ll: $(OUTPUT)/%.bpf.ll | $(OUTPUT)
 	$(call msg,COV,$@)
 	$(Q)$(OPT) \
-		-load-pass-plugin $(BPFCOVLIB_DIR)/libBPFCov.so -passes="default<O2>" \
+		-load-pass-plugin $(BPFCOVLIB_DIR)/libBPFCov.so -passes="bpf-cov" \
 		-S $< -o $@
 
 # Build the instrumented ELF
-$(OUTPUT)/%.bpf.cov.o: $(OUTPUT)/%.bpf.cov.ll | $(OUTPUT)
+$(OUTPUT)/%.bpf.cov.o: $(OUTPUT)/%.bpf.cov.ll $(OUTPUT)/%.bpf.cov.obj | $(OUTPUT)
 	$(call msg,OBJ,$@)
 	$(Q)$(LLC) -march=bpf -filetype=obj -o $@ $<
 
