@@ -45,7 +45,7 @@ int main(int argc, char **argv)
     }
 
     // Set the counter
-    skel->rodata->count = 22;
+    skel->rodata->count = 10;
 
     err = raw_enter__load(skel);
     if (err)
@@ -68,12 +68,8 @@ int main(int argc, char **argv)
     tattr.ctx_size_in = sizeof(ctx);
 
     err = bpf_prog_test_run_xattr(&tattr);
-    // todo(leodido) > do something actually meaningful with the test/err
-
-    err = bpf_trace_pipe(STDERR_FILENO);
 
 cleanup:
-    // todo(leodido) > call API to collect coverage data
     raw_enter__destroy(skel);
     return -err;
 }
