@@ -1,9 +1,10 @@
 OUTPUT := .output
-ARCH := $(shell uname -m | sed 's/x86_64/x86/')
 CLANG ?= clang
 OPT ?= opt
 LLC ?= llc
 JQ ?= jq
+SED ?= sed
+ARCH := $(shell uname -m | $(SED) 's/x86_64/x86/' | $(SED) 's/aarch64/arm64/' | $(SED) 's/ppc64le/powerpc/' | $(SED) 's/mips.*/mips/')
 BPFCOVLIB_DIR ?= $(abspath ../../build/lib)
 BPFTOOL_LOCAL ?= ../tools/bpftool
 BPFTOOL = $(abspath $(BPFTOOL_LOCAL))
@@ -13,7 +14,7 @@ LIBBPF_OBJ := $(abspath $(OUTPUT)/libbpf.a)
 VMLINUX := $(abspath $(OUTPUT)/vmlinux/vmlinux.h)
 INCLUDES := -I$(LIBBPF_DIR)/include/uapi -I$(dir $(VMLINUX))
 CLANG_BPF_SYS_INCLUDES = $(shell $(CLANG) -v -E - </dev/null 2>&1 \
-	| sed -n '/<...> search starts here:/,/End of search list./{ s| \(/.*\)|-idirafter \1|p }')
+	| $(SED) -n '/<...> search starts here:/,/End of search list./{ s| \(/.*\)|-idirafter \1|p }')
 
 # List your examples here
 EXAMPLES = raw_enter fentry
