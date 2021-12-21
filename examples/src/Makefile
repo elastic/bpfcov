@@ -10,13 +10,12 @@ LIBBPF_DIR := $(abspath ../libbpf)
 LIBBPF_SRC := $(abspath $(LIBBPF_DIR)/src)
 LIBBPF_OBJ := $(abspath $(OUTPUT)/libbpf.a)
 VMLINUX := $(abspath $(OUTPUT)/vmlinux/vmlinux.h)
-INCLUDES := -I$(OUTPUT) -I$(LIBBPF_DIR)/include/uapi -I$(dir $(VMLINUX))
-ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+INCLUDES := -I$(LIBBPF_DIR)/include/uapi -I$(dir $(VMLINUX))
 CLANG_BPF_SYS_INCLUDES = $(shell $(CLANG) -v -E - </dev/null 2>&1 \
 	| sed -n '/<...> search starts here:/,/End of search list./{ s| \(/.*\)|-idirafter \1|p }')
 
 # List your examples here
-EXAMPLES = raw_enter fentry
+EXAMPLES = raw_enter #fentry
 
 ifeq ($(V),1)
 	Q =
@@ -30,10 +29,11 @@ else
 	MAKEFLAGS += --no-print-directory
 endif
 
-BINARIES := $(patsubst %,$(OUTPUT)/%,$(EXAMPLES))
-
 .PHONY: all
 all: $(EXAMPLES)
+
+.PHONY: cov
+cov: $(patsubst %,cov/%,$(EXAMPLES))
 
 .PHONY: distclean
 distclean:
@@ -44,13 +44,12 @@ distclean:
 .PHONY: clean
 clean:
 	$(call msg,CLEAN)
-	$(Q)rm -rf $(OUTPUT)/*.bpf.{o,ll,cov.o,cov.ll}
-	$(Q)rm -rf $(OUTPUT)/*.skel.{h,cov.h}
-	$(Q)rm -rf $(OUTPUT)/*.cov.{o,c,obj} $(OUTPUT)/*.o $(OUTPUT)/*.cov
-	$(Q)rm -rf $(BINARIES)
+	$(Q)rm -rf $(OUTPUT)/*.{o,bpf.o,skel.h}
+	$(Q)rm -rf $(OUTPUT)/cov
+	$(Q)rm -rf $(patsubst %,$(OUTPUT)/%,$(EXAMPLES))
 
 # Create output directory
-$(OUTPUT) $(OUTPUT)/libbpf:
+$(OUTPUT) $(OUTPUT)/cov $(OUTPUT)/libbpf:
 	$(call msg,MKDIR,$@)
 	$(Q)mkdir -p $@
 
@@ -78,66 +77,65 @@ $(VMLINUX): $(BPFTOOL) /sys/kernel/btf/vmlinux
 $(OUTPUT)/%.bpf.o: %.bpf.c $(wildcard %.h) $(VMLINUX) $(LIBBPF_OBJ) | $(OUTPUT)
 	$(call msg,OBJ,$@)
 	$(Q)$(CLANG) -g -O2 \
-		-target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		-target bpf -D__TARGET_ARCH_$(ARCH) -I$(OUTPUT) $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
 		-c $(filter %.c,$^) \
 		-o $@
 
 # Obtain the LLVM IR instrumenting profiling and coverage mappings
-$(OUTPUT)/%.bpf.ll: %.bpf.c $(wildcard %.h) $(VMLINUX) $(LIBBPF_OBJ) | $(OUTPUT)
+$(OUTPUT)/cov/%.bpf.ll: %.bpf.c $(wildcard %.h) $(VMLINUX) $(LIBBPF_OBJ) | $(OUTPUT)/cov
 	$(call msg,LL,$@)
 	$(Q)$(CLANG) -g -O2 \
-		-target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
+		-target bpf -D__TARGET_ARCH_$(ARCH) -I$(OUTPUT)/cov $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) \
 		-fprofile-instr-generate -fcoverage-mapping \
 		-emit-llvm -S \
 		-c $(filter %.c,$^) \
 		-o $@
 
 # Create the object file for coverage (not for loading, only for llvm-cov)
-$(OUTPUT)/%.bpf.cov.obj: $(OUTPUT)/%.bpf.ll | $(OUTPUT)
-	$(call msg,COV.OBJ,$@)
+$(OUTPUT)/cov/%.bpf.obj: $(OUTPUT)/cov/%.bpf.ll | $(OUTPUT)/cov
+	$(call msg,ARCHIVE,$@)
 	$(Q)$(OPT) \
 		-load $(BPFCOVLIB_DIR)/libBPFCov.so -strip-initializers-only -bpf-cov $< \
 		| $(LLC) -march=bpf -filetype=obj -o $@
 
 # Make the LLVM IR valid for eBPF
-$(OUTPUT)/%.bpf.cov.ll: $(OUTPUT)/%.bpf.ll | $(OUTPUT)
+$(OUTPUT)/cov/%.bpf.cov.ll: $(OUTPUT)/cov/%.bpf.ll | $(OUTPUT)/cov
 	$(call msg,COV,$@)
 	$(Q)$(OPT) \
 		-load-pass-plugin $(BPFCOVLIB_DIR)/libBPFCov.so -passes="bpf-cov" \
 		-S $< -o $@
 
 # Build the instrumented ELF
-$(OUTPUT)/%.bpf.cov.o: $(OUTPUT)/%.bpf.cov.ll $(OUTPUT)/%.bpf.cov.obj | $(OUTPUT)
+$(patsubst %,$(OUTPUT)/cov/%.bpf.o,$(EXAMPLES)): %.bpf.o: %.bpf.cov.ll %.bpf.obj
+$(OUTPUT)/cov/%.bpf.o: $(OUTPUT)/cov/%.bpf.cov.ll | $(OUTPUT)/cov
 	$(call msg,OBJ,$@)
 	$(Q)$(LLC) -march=bpf -filetype=obj -o $@ $<
 
 # Generate the skeleton for the eBPF example as is
 $(OUTPUT)/%.skel.h: $(OUTPUT)/%.bpf.o $(BPFTOOL) | $(OUTPUT)
 	$(call msg,SKEL,$@)
-	$(Q)$(BPFTOOL) gen skeleton $< name $(@F:.skel.h=) > $@
+	$(Q)$(BPFTOOL) gen skeleton $< name $* > $@
 
 # Generate the skeleton for the instrumented ELF
-$(OUTPUT)/%.skel.cov.h: $(OUTPUT)/%.bpf.cov.o $(BPFTOOL) | $(OUTPUT)
+$(OUTPUT)/cov/%.skel.h: $(OUTPUT)/cov/%.bpf.o $(BPFTOOL) | $(OUTPUT)/cov
 	$(call msg,SKEL,$@)
-	$(Q)$(BPFTOOL) gen skeleton $< name $(@F:.skel.cov.h=) > $@
+	$(Q)$(BPFTOOL) gen skeleton $< name $* > $@
 
 # Build userspace code
 $(patsubst %,$(OUTPUT)/%.o,$(EXAMPLES)): %.o: %.skel.h
-$(patsubst %,$(OUTPUT)/%.cov.o,$(EXAMPLES)): %.cov.o: %.skel.cov.h
 
 # Build the eBPF application as is
 $(OUTPUT)/%.o: %.c $(wildcard %.h) | $(OUTPUT)
 	$(call msg,CC,$@)
-	$(Q)$(CC) -g -Wall $(INCLUDES) -c $(filter %.c,$^) -o $@
+	$(Q)$(CC) -g -Wall -I$(OUTPUT) $(INCLUDES) -c $(filter %.c,$^) -o $@
+
+# Build userspace code using the instrumented skeleton
+$(patsubst %,$(OUTPUT)/cov/%.o,$(EXAMPLES)): %.o: %.skel.h
 
 # Build the instrumented eBPF application
-$(OUTPUT)/%.cov.c: %.c
-	$(call msg,SED,$@)
-	$(Q)sed -E '/^#include/ s/"$(@F:.cov.c=.skel)/&.cov/' $< > $@
-
-$(OUTPUT)/%.cov.o: $(OUTPUT)/%.cov.c $(wildcard %.h) | $(OUTPUT)
+$(OUTPUT)/cov/%.o: %.c $(wildcard %.h) | $(OUTPUT)/cov
 	$(call msg,CC,$@)
-	$(Q)$(CC) -g -Wall $(INCLUDES) -I$(ROOT_DIR) -c $(filter %.c,$^) -o $@
+	$(Q)$(CC) -g -Wall -I$(OUTPUT)/cov $(INCLUDES) -c $(filter %.c,$^) -o $@
 
 # Build the binary as is
 %: $(OUTPUT)/%.o $(LIBBPF_OBJ) | $(OUTPUT)
@@ -145,12 +143,12 @@ $(OUTPUT)/%.cov.o: $(OUTPUT)/%.cov.c $(wildcard %.h) | $(OUTPUT)
 	$(Q)$(CC) -g -Wall $^ -lelf -lz -o $(OUTPUT)/$@
 
 # Build the instrumented eBPF binary
-%.cov: $(OUTPUT)/%.cov.o $(LIBBPF_OBJ) | $(OUTPUT)
+cov/%: $(OUTPUT)/cov/%.o $(LIBBPF_OBJ) | $(OUTPUT)/cov
 	$(call msg,BIN,$(OUTPUT)/$@)
 	$(Q)$(CC) -g -Wall $^ -lelf -lz -o $(OUTPUT)/$@
 
-# delete failed targets
+# Delete failed targets
 .DELETE_ON_ERROR:
 
-# keep intermediate (.bpf.ll, etc.) targets
+# Keep intermediate (.bpf.o, etc.) targets
 .SECONDARY:
