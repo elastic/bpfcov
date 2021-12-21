@@ -3,6 +3,7 @@ ARCH := $(shell uname -m | sed 's/x86_64/x86/')
 CLANG ?= clang
 OPT ?= opt
 LLC ?= llc
+JQ ?= jq
 BPFCOVLIB_DIR ?= $(abspath ../../build/lib)
 BPFTOOL_LOCAL ?= ../tools/bpftool
 BPFTOOL = $(abspath $(BPFTOOL_LOCAL))
@@ -15,7 +16,7 @@ CLANG_BPF_SYS_INCLUDES = $(shell $(CLANG) -v -E - </dev/null 2>&1 \
 	| sed -n '/<...> search starts here:/,/End of search list./{ s| \(/.*\)|-idirafter \1|p }')
 
 # List your examples here
-EXAMPLES = raw_enter #fentry
+EXAMPLES = raw_enter fentry
 
 ifeq ($(V),1)
 	Q =
@@ -65,6 +66,7 @@ $(LIBBPF_OBJ): $(wildcard $(LIBBPF_SRC)/*.[ch] $(LIBBPF_SRC)/Makefile) | $(OUTPU
 $(BPFTOOL): $(shell command -v bpftool)
 	$(call msg,BPFTOOL,$(BPFTOOL_LOCAL))
 	$(Q)$(shell ln -s $< $@)
+	$(Q)$(BPFTOOL) version -j | $(JQ) -e '.features.skeletons' || $(error "A bptfool with the skeletons feature is required")
 
 # Generate vmlinux.h
 $(VMLINUX): $(BPFTOOL) /sys/kernel/btf/vmlinux
