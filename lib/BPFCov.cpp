@@ -792,7 +792,7 @@ PassPluginLibraryInfo getBPFCovPluginInfo()
                     {
                         if (Name.equals(PassArg))
                         {
-                            errs() << "value here: " << (StripInitializersOnly.getValue() ? "true" : "false") << "\n";
+                            errs() << "strip-initializers-only: " << (StripInitializersOnly.getValue() ? "true" : "false") << "\n";
                             MPM.addPass(BPFCov());
                             return true;
                         }
@@ -830,6 +830,6 @@ static RegisterStandardPasses RegisterBPFCov(
     PassManagerBuilder::EP_EarlyAsPossible,
     [](const PassManagerBuilder &, legacy::PassManagerBase &PM)
     {
-        errs() << "legacy: value here: " << (StripInitializersOnly.getValue() ? "true" : "false") << "\n";
+        errs() << "legacy: strip-initializers-only: " << (StripInitializersOnly.getValue() ? "true" : "false") << "\n";
         PM.add(new LegacyBPFCov());
     });
