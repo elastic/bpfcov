@@ -1,9 +1,7 @@
 CC ?= cc
 LIBBPF_DIR := $(abspath ../examples/libbpf)
 LIBBPF_OBJ := $(abspath ../examples/src/.output/libbpf.a)
-CFLAGS = -std=c11 -Wall -Wextra -O3 -g3
-
-#-DNDEBUG
+CFLAGS := -std=c11 -Wall -Wextra -O3 -g3
 
 PROGRAM = bpfcov
 
@@ -17,6 +15,10 @@ else
 		      "$(patsubst $(abspath $(OUTPUT))/%,%,$(2))"	\
 		      "$(if $(3), $(3))";
 	MAKEFLAGS += --no-print-directory
+endif
+
+ifeq ($(RELEASE),1)
+	CFLAGS += -DNDEBUG
 endif
 
 .PHONY: all
