@@ -1,6 +1,32 @@
-.POSIX:
-CC     = cc
-CFLAGS = -std=c11 -Wall -Wextra -O3 -g3 -I../examples/src/.output #-DNDEBUG
+CC ?= cc
+LIBBPF_DIR := $(abspath ../examples/libbpf)
+LIBBPF_OBJ := $(abspath ../examples/src/.output/libbpf.a)
+CFLAGS = -std=c11 -Wall -Wextra -O3 -g3
 
-bpfcov: bpfcov.c
-	$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $< -lbpf
+#-DNDEBUG
+
+PROGRAM = bpfcov
+
+ifeq ($(V),1)
+	Q =
+	msg =
+else
+	Q = @
+	msg = @printf '  %-8s %s%s\n'					\
+		      "$(1)"						\
+		      "$(patsubst $(abspath $(OUTPUT))/%,%,$(2))"	\
+		      "$(if $(3), $(3))";
+	MAKEFLAGS += --no-print-directory
+endif
+
+.PHONY: all
+all: $(PROGRAM)
+
+.PHONY: clean
+clean:
+	$(call msg,CLEAN)
+	$(Q)rm -rf $(PROGRAM)
+
+%: %.c $(LIBBPF_OBJ)
+	$(call msg,BIN,$@)
+	$(Q)$(CC) $(CFLAGS) $^ -lelf -lz -o $@
