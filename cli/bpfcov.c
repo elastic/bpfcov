@@ -60,6 +60,10 @@ void gen_cmd(struct argp_state *state);
 static error_t gen_parse(int key, char *arg, struct argp_state *state);
 int gen(struct root_args *args);
 
+void cov_cmd(struct argp_state *state);
+static error_t cov_parse(int key, char *arg, struct argp_state *state);
+int cov(struct root_args *args);
+
 static bool is_bpffs(char *bpffs_path);
 static void strip_trailing_char(char *str, char c);
 static void replace_with(char *str, const char what, const char with);
@@ -150,9 +154,10 @@ static struct argp_option root_opts[] = {
         ROOT_VERBOSITY_OPT_ARG,
         OPTION_ARG_OPTIONAL,
         "Set the verbosity level when not built for release (defaults to 0)",
-        -1
-
+        1,
     },
+    {"\n", 0, 0, OPTION_DOC, 0, 0},
+    {"GLOBALS:", 0, 0, OPTION_DOC, 0, 0},
     {0} // .
 };
 
@@ -228,7 +233,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
     case ARGP_KEY_ARG:
         assert(arg);
 
-        if (strncmp(arg, "run", 3) == 0)
+        /**/ if (strncmp(arg, "run", 3) == 0)
         {
             args->command = &run;
             run_cmd(state);
@@ -237,6 +242,11 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             args->command = &gen;
             gen_cmd(state);
+        }
+        else if (strncmp(arg, "cov", 3) == 0)
+        {
+            args->command = &cov;
+            cov_cmd(state);
         }
         else
         {
@@ -378,6 +388,7 @@ struct run_args
 };
 
 static struct argp_option run_opts[] = {
+    {"GLOBALS:", 0, 0, OPTION_DOC, 0, 0},
     {0} // .
 };
 
@@ -475,7 +486,9 @@ const char GEN_UNPIN_OPT_LONG[] = "unpin";
 static struct argp_option gen_opts[] = {
     {"OPTIONS:", 0, 0, OPTION_DOC, 0, 0},
     {GEN_OUTPUT_OPT_LONG, GEN_OUTPUT_OPT_KEY, GEN_OUTPUT_OPT_ARG, 0, "Set the output path\n(defaults to <program>.profraw)", 1},
-    {GEN_UNPIN_OPT_LONG, GEN_UNPIN_OPT_KEY, 0, 0, "Unpin the maps", 0},
+    {GEN_UNPIN_OPT_LONG, GEN_UNPIN_OPT_KEY, 0, 0, "Unpin the maps", 1},
+    {"\n", 0, 0, OPTION_DOC, 0, 0},
+    {"GLOBALS:", 0, 0, OPTION_DOC, 0, 0},
     {0} // .
 };
 
@@ -577,6 +590,84 @@ void gen_cmd(struct argp_state *state)
     state->next += argc - 1;
 
     log_debu(args.parent, "end <gen> (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+// CLI / bpfcov cov
+// --------------------------------------------------------------------------------------------------------------------
+
+struct cov_args
+{
+    struct root_args *parent;
+};
+
+const char COV_OUTPUT_OPT_KEY = 'o';
+const char COV_OUTPUT_OPT_LONG[] = "output";
+const char COV_OUTPUT_OPT_ARG[] = "path";
+const char COV_FORMAT_OPT_KEY = 'f';
+const char COV_FORMAT_OPT_LONG[] = "format";
+const char COV_FORMAT_OPT_ARG[] = "html|json";
+
+static struct argp_option cov_opts[] = {
+    {"OPTIONS:", 0, 0, OPTION_DOC, 0, 0},
+    {COV_OUTPUT_OPT_LONG, COV_OUTPUT_OPT_KEY, COV_OUTPUT_OPT_ARG, 0, "Set the output path\n(defaults to <profraw>_<format>)", 1},
+    {COV_FORMAT_OPT_LONG, COV_FORMAT_OPT_KEY, COV_FORMAT_OPT_ARG, 0, "Set the output format\n(defaults to html)", 1},
+    {"\n", 0, 0, OPTION_DOC, 0, 0},
+    {"GLOBALS:", 0, 0, OPTION_DOC, 0, 0},
+    {0} // .
+};
+
+static char cov_docs[] = "\n"
+                         "Generate the coverage visualizations for the bpfcov instrumented program.\n"
+                         "\n";
+
+static struct argp cov_argp = {
+    .options = cov_opts,
+    .parser = cov_parse,
+    .args_doc = "<profraw>",
+    .doc = cov_docs,
+};
+
+static error_t
+cov_parse(int key, char *arg, struct argp_state *state)
+{
+    struct cov_args *args = state->input;
+
+    assert(args);
+    assert(args->parent);
+
+    // TODO(leodido)
+
+    return 0;
+}
+
+void cov_cmd(struct argp_state *state)
+{
+    struct cov_args args = {};
+    int argc = state->argc - state->next + 1;
+    char **argv = &state->argv[state->next - 1];
+    char *argv0 = argv[0];
+
+    args.parent = state->input;
+
+    log_debu(args.parent, "begin <cov> (argc = %d, argv[0] = %s)\n", argc, argv[0]);
+
+    argv[0] = malloc(strlen(state->name) + strlen(" cov") + 1);
+    if (!argv[0])
+    {
+        argp_failure(state, 1, ENOMEM, 0);
+    }
+    sprintf(argv[0], "%s cov", state->name);
+
+    argp_parse(&cov_argp, argc, argv, ARGP_IN_ORDER, &argc, &args);
+
+    free(argv[0]);
+
+    argv[0] = argv0;
+
+    state->next += argc - 1;
+
+    log_debu(args.parent, "end <cov> (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -1057,5 +1148,10 @@ int gen(struct root_args *args)
     /* Unpin the maps */
     handle_map_pins(args, NULL, args->unpin);
 
+    return 0;
+}
+
+int cov(struct root_args *args)
+{
     return 0;
 }
