@@ -124,6 +124,22 @@ int main(int argc, char **argv)
 
 #define NUM_PINNED_MAPS 4
 
+#define FOREACH_FORMAT(FORMAT) \
+    FORMAT(FORMAT_, HTML)      \
+    FORMAT(FORMAT_, JSON)
+
+#define GEN_ENUM(PREFIX, ENUM) PREFIX##ENUM,
+#define GEN_STRING(PREFIX, STRING) #STRING,
+
+enum cov_format
+{
+    FOREACH_FORMAT(GEN_ENUM)
+};
+
+static const char *format_string[] = {FOREACH_FORMAT(GEN_STRING)};
+
+typedef enum cov_format cov_format_t;
+
 struct root_args
 {
     bool unpin;
@@ -132,6 +148,9 @@ struct root_args
     char *cov_root;
     char *prog_root;
     char *pin[NUM_PINNED_MAPS];
+    char *profraw;
+    char *cov_output;
+    cov_format_t cov_format;
     int verbosity;
     callback_t command;
     char **program;
@@ -148,7 +167,6 @@ static struct argp_option root_opts[] = {
     {"OPTIONS:", 0, 0, OPTION_DOC, 0, 0},
     {ROOT_BPFFS_OPT_LONG, ROOT_BPFFS_OPT_KEY, ROOT_BPFFS_OPT_ARG, 0, "Set the BPF FS path (defaults to /sys/fs/bpf)", 1},
     {
-
         ROOT_VERBOSITY_OPT_LONG,
         ROOT_VERBOSITY_OPT_KEY,
         ROOT_VERBOSITY_OPT_ARG,
@@ -261,7 +279,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             argp_state_help(state, state->err_stream, ARGP_HELP_STD_HELP);
         }
-        if (args->program[0] == NULL)
+        if (args->command != &cov && args->program[0] == NULL)
         {
             // This should never happen
             argp_error(state, "unexpected missing <program>");
@@ -271,6 +289,15 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
     // Final validations, checks, and settings
     case ARGP_KEY_FINI:
         bool is_run = args->command == &run;
+
+        // When the subcommand is <cov>
+        // - do not validate BPF FS
+        // - do not generate pinning paths
+        // - do not clean up (<run>) or check (<gen>) pinned maps
+        if (args->command == &cov)
+        {
+            break;
+        }
 
         // Check the BPF filesystem
         if (!is_bpffs(args->bpffs))
@@ -549,7 +576,7 @@ gen_parse(int key, char *arg, struct argp_state *state)
             int output_path_len = snprintf(output_path, PATH_MAX, "%s.%s", args->parent->program[0], "profraw");
             if (output_path_len >= PATH_MAX)
             {
-                argp_error(state, "output path too long");
+                argp_error(state, "default output path too long");
             }
             args->parent->output = output_path;
         }
@@ -636,7 +663,80 @@ cov_parse(int key, char *arg, struct argp_state *state)
     assert(args);
     assert(args->parent);
 
-    // TODO(leodido)
+    char str[2];
+    log_debu(args->parent, "parsing <cov> %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
+
+    switch (key)
+    {
+    case COV_OUTPUT_OPT_KEY:
+        if (strlen(arg) > 0)
+        {
+            args->parent->cov_output = arg;
+            break;
+        }
+        argp_error(state, "option '--%s' requires a %s", COV_OUTPUT_OPT_LONG, COV_OUTPUT_OPT_ARG);
+        break;
+
+    case COV_FORMAT_OPT_KEY:
+        if (strlen(arg) > 0)
+        {
+            /**/ if (strncmp(arg, "html", 4) == 0)
+            {
+                args->parent->cov_format = FORMAT_HTML;
+            }
+            else if (strncmp(arg, "json", 4) == 0)
+            {
+                args->parent->cov_format = FORMAT_JSON;
+            }
+            /**/ else
+            {
+                goto cov_format_error;
+            }
+            break;
+        }
+    cov_format_error:
+        argp_error(state, "option '--%s' requires a value (%s)", COV_FORMAT_OPT_LONG, COV_FORMAT_OPT_ARG);
+        break;
+
+    case ARGP_KEY_ARG:
+        assert(arg);
+        if (state->arg_num >= 1)
+        {
+            log_warn(args->parent, "ignoring <cov> argument #%d (%s)\n", state->arg_num, arg);
+            break;
+        }
+        args->parent->profraw = arg;
+        break;
+
+    case ARGP_KEY_END:
+        if (!args->parent->profraw)
+        {
+            argp_error(state, "missing profraw input file");
+        }
+        if (access(args->parent->profraw, F_OK) != 0)
+        {
+            argp_error(state, "input profraw file '%s' does not actually exist", args->parent->profraw);
+        }
+        // TODO(leodido) > check it actually really is a profraw file?
+        if (!args->parent->cov_output)
+        {
+            char *profraw_name = strdup(args->parent->profraw);
+            strtok(profraw_name, ".");
+
+            char output_path[PATH_MAX];
+            int output_path_len = snprintf(output_path, PATH_MAX, "%s_%s", profraw_name, format_string[args->parent->cov_format]);
+            if (output_path_len >= PATH_MAX)
+            {
+                argp_error(state, "default output path too long");
+            }
+            args->parent->cov_output = output_path;
+        }
+        break;
+
+    default:
+        log_debu(args->parent, "parsing <cov> UNKNOWN = '%s'\n", arg ? arg : "(null)");
+        return ARGP_ERR_UNKNOWN;
+    }
 
     return 0;
 }
@@ -1153,5 +1253,7 @@ int gen(struct root_args *args)
 
 int cov(struct root_args *args)
 {
+    log_info(args, "generating coverage visualization in '%s' from '%s'\n", args->cov_output, args->profraw);
+
     return 0;
 }
