@@ -717,7 +717,7 @@ cov_parse(int key, char *arg, struct argp_state *state)
         {
             argp_error(state, "input profraw file '%s' does not actually exist", args->parent->profraw);
         }
-        // TODO(leodido) > check it actually really is a profraw file?
+        // TODO(leodido) > check it really is a profraw file?
         if (!args->parent->cov_output)
         {
             char *profraw_name = strdup(args->parent->profraw);
@@ -730,6 +730,7 @@ cov_parse(int key, char *arg, struct argp_state *state)
                 argp_error(state, "default output path too long");
             }
             args->parent->cov_output = output_path;
+            free(profraw_name);
         }
         break;
 
@@ -915,6 +916,10 @@ static void handle_map_pins(struct root_args *args, struct argp_state *state, bo
 
 static int get_pin_path(struct root_args *args, char *suffix, char **pin_path)
 {
+    if (!suffix) {
+        return 0;
+    }
+
     if (strncmp(suffix, "profc", 5) == 0)
     {
         *pin_path = args->pin[0];
