@@ -17,7 +17,7 @@ CLANG_BPF_SYS_INCLUDES = $(shell $(CLANG) -v -E - </dev/null 2>&1 \
 	| $(SED) -n '/<...> search starts here:/,/End of search list./{ s| \(/.*\)|-idirafter \1|p }')
 
 # List your examples here
-EXAMPLES = raw_enter fentry
+EXAMPLES = raw_enter fentry lsm
 
 ifeq ($(V),1)
 	Q =
