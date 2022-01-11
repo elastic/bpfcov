@@ -9,7 +9,7 @@ Every example is composed by:
 1. a `*.bpf.c` file that contains the eBPF program
 2. a `*.c` file that contains the userspace code
 
-The [Makefile](src/Makefile) generates 2 targets for each word of the `EXAMPLES` variable in it.
+The [Makefile](src/Makefile) generates 2 targets for each word of the [EXAMPLES](src/Makefile#L20) variable in it.
 
 So, assuming the `EXAMPLES` variable contains a word `foo`, then the following targets will be generated:
 
@@ -23,7 +23,7 @@ So, assuming the `EXAMPLES` variable contains a word `foo`, then the following t
 
 In case you wanna try **bpfcov** on another example, doing it is just a matter of putting its source code in the `src/` directory and appending its name into the `EXAMPLES variable in the [Makefile](src/Makefile).
 
-The [Makefile](src/Makefile) takes care of everything... But I suggest you to take a look at it in case you are interested into getting to know the details of the steps.
+The [Makefile](src/Makefile) takes care of everything... But I suggest you to take a look at it in case you are interested into getting to know the details of the steps. Or at least, read the following [section](#key-aspects).
 
 ## Key aspects
 
@@ -31,7 +31,7 @@ The key aspects of building an instrumented eBPF application are the following o
 
 1. Compile you eBPF program (`*.bpf.c`) to LLVM IR instrumenting it with profile and coverage mapping information (`-fprofile-instr-generate -fcoverage-mapping`)
 
-2. Run the pass (`libBPFCov.so`) on the LLVM IR to fix it
+2. Run the pass (`libBPFCov.so`) on the LLVM IR to fix it for the BPF VM
 
     1. Use it to compile a valid BPF ELF that loads successfully in the Linux kernel
 
@@ -84,7 +84,7 @@ make distclean
 
 1. `libBPFCov.so`
 
-    [Build](../README.md#Building) the LLVM pass.
+    First [obtain](../README.md#Building) the LLVM pass library, please.
 
 2. `bpftool`
 
