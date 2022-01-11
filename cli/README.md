@@ -1,4 +1,4 @@
-# bpfcov
+# bpfcov / cli
 
 > Run your instrumented eBPF programs and obtain coverage from them
 
@@ -8,7 +8,7 @@ Once you have [built](#building) it, you can use the **bpfcov** CLI following th
 
 First, **run** your eBPF program through it:
 
-```console
+```shell
 $ sudo ./bpfcov -v2 run ../examples/src/.output/cov/raw_enter
 ```
 
@@ -19,7 +19,7 @@ To know how to instrument it please [read this section](...).
 When the eBPF program completed, or when you stopped the `run` subcommand, you may want to double-check
 that **bpfcov** created **its pinned eBPF maps** in the BPF file system.
 
-```console
+```shell
 $ sudo tree /sys/fs/bpf/cov
 
 /sys/fs/bpf/cov
@@ -34,7 +34,7 @@ If so, then it is time to **generate** a `.profraw` file by collecting info from
 
 To do so, you need to use the `gen` subcommand:
 
-```console
+```shell
 sudo ./bpfcov -v2 gen ../examples/src/.output/cov/raw_enter
 ```
 
@@ -44,7 +44,7 @@ By default, the `gen` subcommand will **not** unpin the eBPF maps that the `run`
 
 But in case you want to unpin them, and you want to output the `.profraw` file in a different location, you can do the following command:
 
-```console
+```shell
 sudo ./bpfcov -v2 gen --unpin -o hellow.profraw ../examples/src/.output/cov/raw_enter
 ```
 
@@ -52,13 +52,13 @@ Now that you have a fresh `.profraw` file you can use the **LLVM tools** ([llvm-
 
 For example, you may want to generate a `*.profdata` file:
 
-```console
+```shell
 $ llvm-profdata merge -sparse hellow.profraw -o hellow.profdata
 ```
 
 With such a file, plus the `*.bpf.obj` file created while instrumenting your eBPF program ([read this if you haven't](...)), you can now obtain various coverage reports!
 
-```console
+```shell
 $ llvm-cov show \
   --instr-profile=hellow.profdata \
   --show-region-summary --show-branch-summary --show-line-counts-or-regions \
@@ -107,7 +107,7 @@ Feel free to explore the different flags the **bpfcov** CLI and its subcommand s
 
 The **bpfcov** CLI provides a detailed `--help` flag.
 
-```console
+```shell
 $ ./bpfcov --help
 
 Usage: bpfcov [OPTION...] [run|gen] <program>
@@ -139,7 +139,7 @@ It also provides a specific `--help` flag for each subcommand.
 
 For example, you can get to know more about the `gen` subcommand by typing:
 
-```console
+```shell
 $ ./bpfcov gen --help
 
 Usage: bpfcov gen [OPTION...] <program>
@@ -165,7 +165,7 @@ Feel free to explore the other subcommands and their flags.
 
 I'm not sure this topic requires a whole section on its own:
 
-```console
+```shell
 make
 ```
 
