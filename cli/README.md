@@ -6,20 +6,21 @@
 
 Once you have [built](#building) it, you can use the **bpfcov** CLI following the next steps.
 
-First, **run** your eBPF program through it:
+First, **run** your eBPF application through it:
 
-```shell
+```bash
 $ sudo ./bpfcov -v2 run ../examples/src/.output/cov/raw_enter
 ```
 
-Notice that you must give to the `run` subcommand the **instrumented eBPF program** (`.output/`**cov**`/raw_enter`).
+Notice that you must give to the `run` subcommand the **instrumented eBPF application** (`.output/`**cov**`/raw_enter`).
 
-To know how to instrument it please [read this section](...).
+To know how to instrument it please [read this section](../README#usage).
+Or just take a look at the [examples](../examples) directory...
 
-When the eBPF program completed, or when you stopped the `run` subcommand, you may want to double-check
+When the eBPF application exited, or when you stopped the `run` subcommand, you may want to double-check
 that **bpfcov** created **its pinned eBPF maps** in the BPF file system.
 
-```shell
+```bash
 $ sudo tree /sys/fs/bpf/cov
 
 /sys/fs/bpf/cov
@@ -34,17 +35,17 @@ If so, then it is time to **generate** a `.profraw` file by collecting info from
 
 To do so, you need to use the `gen` subcommand:
 
-```shell
+```bash
 sudo ./bpfcov -v2 gen ../examples/src/.output/cov/raw_enter
 ```
 
-This command will create a `raw_enter.profraw` file sibling to the instrumented eBPF program (thus, in `../examples/src/.output/cov/raw_enter.profraw`).
+This command will create a `raw_enter.profraw` file sibling to the instrumented eBPF application binary (thus, in `../examples/src/.output/cov/raw_enter.profraw`).
 
 By default, the `gen` subcommand will **not** unpin the eBPF maps that the `run` subcommand created.
 
 But in case you want to unpin them, and you want to output the `.profraw` file in a different location, you can do the following command:
 
-```shell
+```bash
 sudo ./bpfcov -v2 gen --unpin -o hellow.profraw ../examples/src/.output/cov/raw_enter
 ```
 
@@ -52,13 +53,13 @@ Now that you have a fresh `.profraw` file you can use the **LLVM tools** ([llvm-
 
 For example, you may want to generate a `*.profdata` file:
 
-```shell
+```bash
 $ llvm-profdata merge -sparse hellow.profraw -o hellow.profdata
 ```
 
-With such a file, plus the `*.bpf.obj` file created while instrumenting your eBPF program ([read this if you haven't](...)), you can now obtain various coverage reports!
+With such a file, plus the `*.bpf.obj` file created while instrumenting your eBPF program ([read this if you haven't](../examples/README.md#key-aspects)), you can now obtain various coverage reports!
 
-```shell
+```bash
 $ llvm-cov show \
   --instr-profile=hellow.profdata \
   --show-region-summary --show-branch-summary --show-line-counts-or-regions \
@@ -107,7 +108,7 @@ Feel free to explore the different flags the **bpfcov** CLI and its subcommand s
 
 The **bpfcov** CLI provides a detailed `--help` flag.
 
-```shell
+```bash
 $ ./bpfcov --help
 
 Usage: bpfcov [OPTION...] [run|gen] <program>
@@ -139,7 +140,7 @@ It also provides a specific `--help` flag for each subcommand.
 
 For example, you can get to know more about the `gen` subcommand by typing:
 
-```shell
+```bash
 $ ./bpfcov gen --help
 
 Usage: bpfcov gen [OPTION...] <program>
@@ -165,7 +166,7 @@ Feel free to explore the other subcommands and their flags.
 
 I'm not sure this topic requires a whole section on its own:
 
-```shell
+```bash
 make
 ```
 
