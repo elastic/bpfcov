@@ -11,15 +11,15 @@ Every example is composed by:
 
 The [Makefile](src/Makefile) generates 2 targets for each word of the [EXAMPLES](src/Makefile#L20) variable in it.
 
-So, assuming the `EXAMPLES` variable contains a word `foo`, then the following targets will be generated:
+So, assuming the `EXAMPLES` variable contains a word `program`, then the following targets will be generated:
 
-1. `make foo`
+1. `make program`
 
-    It outputs a your eBPF application binary in `.output/foo`
+    It outputs a your eBPF application binary in `.output/program`
 
-2. `make cov/foo`
+2. `make cov/program`
 
-    It outputs an eBPF application binary **instrumented for source-based code coverage** in `.output/cov/foo`
+    It outputs an eBPF application binary **instrumented for source-based code coverage** in `.output/cov/program`
 
 In case you wanna try **bpfcov** on another example, doing it is just a matter of putting its source code in the `src/` directory and appending its name into the `EXAMPLES variable in the [Makefile](src/Makefile).
 
@@ -50,7 +50,7 @@ Do you only wanna build a specific eBPF example application as is?
 
 Good!
 
-```shell
+```bash
 make fentry
 ```
 
@@ -58,25 +58,25 @@ Do you only wanna compile a specific eBPF example application instrumented for c
 
 Even better!
 
-```shell
+```bash
 make cov/fentry
 ```
 
 Wanna build everything?
 
-```shell
+```bash
 make
 ```
 
 Wanna start over but not recompile the dependencies too?
 
-```shell
+```bash
 make clean
 ```
 
 Wanna start from scratch?
 
-```shell
+```bash
 make distclean
 ```
 
