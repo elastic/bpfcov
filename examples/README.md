@@ -54,12 +54,20 @@ Good!
 make fentry
 ```
 
+The binary will end up in `.output/fentry`.
+
 Do you only wanna compile a specific eBPF example application instrumented for code coverage?
 
 Even better!
 
 ```bash
 make cov/fentry
+```
+
+At this point, you should be able to run it:
+
+```shell
+sudo .output/cov/fentry
 ```
 
 Wanna build everything?
