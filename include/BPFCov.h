@@ -5,6 +5,9 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 
+//------------------------------------------------------------------------------
+// New PM / Interface
+//------------------------------------------------------------------------------
 struct BPFCov : public llvm::PassInfoMixin<BPFCov>
 {
     llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &MAM);
@@ -15,7 +18,7 @@ struct BPFCov : public llvm::PassInfoMixin<BPFCov>
 };
 
 //------------------------------------------------------------------------------
-// Legacy PM interface
+// Legacy PM / Interface
 //------------------------------------------------------------------------------
 struct LegacyBPFCov : public llvm::ModulePass
 {

@@ -6,20 +6,18 @@
 //    Leonardo Di Donato (leodido)
 //
 // DESCRIPTION:
-//    ...
-//
-//    ...
+//    Patch the IR of eBPF programs instrumented for source-code based coverage (-fprofile-instr-generate -fcoverage-mapping).
 //
 // USAGE:
 //    1. Legacy LLVM Pass Manager
-//        opt --load libBPFCov.{so,dylib} [] --bpf-cov <input>
+//        opt --load libBPFCov.{so,dylib} [--strip-initializers-only] --bpf-cov <input>
 //
 //    2. New LLVM Pass Manager
-//        opt --load-pass-plugin libBPFCov.{so,dylib} [--stats] --passes='bpf-cov' <input>
+//        opt --load-pass-plugin libBPFCov.{so,dylib} --passes='bpf-cov' <input>
 //
 //        OR
 //
-//        opt --load-pass-plugin libBPFCov.{so,dylib} [--stats] --passes='default<O2>' <input>
+//        opt --load-pass-plugin libBPFCov.{so,dylib} --passes='default<O2>' <input>
 //
 //        NOTICE: CLI options not available when using the new Pass Manager.
 //
@@ -56,7 +54,7 @@ using namespace llvm;
 //---------------------------------------------------------------------------------------------------------------------
 
 // This cause the resulting BPF ELF to be readable by llvm-cov for coverage output,
-// but it does not output a valid BPF program
+// but it does not output a valid BPF program.
 static cl::opt<bool>
     StripInitializersOnly(
         "strip-initializers-only",
@@ -332,61 +330,6 @@ namespace
                 }
                 else if (Name.startswith("__covrec") && GV->getValueType()->isStructTy())
                 {
-                    errs() << "converting " << Name << " struct to globals\n";
-
-                    ConstantInt *C0 = dyn_cast<ConstantInt>(GV->getInitializer()->getOperand(0));
-                    if (!C0)
-                    {
-                        // TODO(leodido) > bail out
-                        errs() << Name << ": cast failed\n";
-                    }
-                    auto Ty = C0->getType();
-                    if (!Ty->isIntegerTy(64))
-                    {
-                        // TODO(leodido) > bail out
-                        errs() << Name << ": wrong type bandwidth\n";
-                    }
-                    auto *GV0 = new GlobalVariable(
-                        M,
-                        /*Ty=*/Ty,
-                        /*isConstant=*/true,
-                        /*Linkage=*/GlobalVariable::ExternalLinkage,
-                        /*Initializer=*/ConstantInt::get(Ty, C0->getSExtValue()),
-                        /*Name=*/Name + ".0",
-                        /*InsertBefore=*/GV);
-                    GV0->setDSOLocal(true);
-                    GV0->setAlignment(MaybeAlign(8));
-
-                    appendToUsed(M, GV0);
-
-                    Changed = true;
-
-                    ConstantDataArray *C4 = dyn_cast<ConstantDataArray>(GV->getInitializer()->getOperand(4));
-                    if (!C4)
-                    {
-                        // TODO(leodido) > bail out
-                        errs() << Name << ": cast failed\n";
-                    }
-                    auto Ty4 = C4->getType();
-                    if (!Ty4->isArrayTy())
-                    {
-                        // TODO(leodido) > bail out
-                        errs() << Name << ": wrong type\n";
-                    }
-
-                    auto *GV4 = new GlobalVariable(
-                        M,
-                        /*Ty=*/Ty4,
-                        /*isConstant=*/true,
-                        /*Linkage=*/GlobalVariable::ExternalLinkage,
-                        /*Initializer=*/ConstantDataArray::getString(CTX, C4->getRawDataValues(), false),
-                        /*Name=*/Name + ".4",
-                        /*InsertBefore=*/GV);
-                    GV4->setDSOLocal(true);
-                    GV4->setAlignment(MaybeAlign(1));
-
-                    appendToUsed(M, GV4);
-
                     ToDelete.push_back(GV);
                 }
                 else if (Name.startswith("__llvm_coverage") && GV->getValueType()->isStructTy())
@@ -475,6 +418,7 @@ namespace
 
         for (auto *GV : ToDelete)
         {
+            errs() << "erasing " << GV->getName() << "\n";
             GV->eraseFromParent();
         }
 
