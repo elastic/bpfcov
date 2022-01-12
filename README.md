@@ -7,17 +7,24 @@ This project provides 2 main components:
 1. `libBPFCov.so` - an **out-of-tree LLVM pass** to **instrument** your **eBPF programs** for coverage.
 2. `bpfcov` - a **CLI** to **collect source-based coverage** from your eBPF programs.
 
-**TBD: SCREENSHOTS GRID**
+
+| | | |
+|:-------------------------:|:-------------------------:|:-------------------------:|
+| <a href="docs/assets/stdo1.png"><img width="1604" alt="Source-based code coverage for BPF raw tracepoints" src="docs/assets/stdo1.png"></a> | <a href="docs/assets/stdo2.png"><img width="1604" alt="Source-based code coverage for BPF LSM programs" src="docs/assets/stdo2.png"></a> | <a href="docs/assets/mult1.png"><img width="1604" alt="HTML coverage index for multiple eBPF programs" src="docs/assets/mult1.png"></a>
+| <a href="docs/assets/html2.png"><img width="1604" alt="HTML coverage report for eBPF programs" src="docs/assets/html2.png"></a> | <a href="docs/assets/html1.png"><img width="1604" alt="HTML coverage report for eBPF programs" src="docs/assets/html1.png"></a> | <a href="docs/assets/json1.png"><img width="1604" alt="JSON report for multiple eBPF programs" src="docs/assets/json1.png"></a>
+| <a href="docs/assets/lcov1.png"><img width="1604" alt="LCOV info file from multiple eBPF programs" src="docs/assets/lcov1.png"></a> | <a href="docs/assets/html3.png"><img width="1604" alt="HTML line coverage report for eBPF programs" src="docs/assets/html3.png"></a> | <a href="docs/assets/html4.png"><img width="1604" alt="HTML line coverage report for eBPF programs" src="docs/assets/html4.png"></a>
 
 ## Overview
 
 This section aims to provide a high-level overiew of the steps you need to get started with **bpfcov**.
 
 1. [Compile the LLVM pass](#building) obtaining `libBPFCov.so`
-2. Instrument your eBPF program by compiling it and by running the LLVM pass on it
+2. Instrument your eBPF program by compiling it and by running the LLVM pass (`libBPFCov.so`) on it
 3. Build the userspace code of your eBPF application
 4. Execute your eBPF application in the kernel through the `bpfcov run ...` command
 5. Generate the `.profraw` file from the run through the `bpfcov gen ...` command
+    1. Having a `.profraw` makes this tool fully interoperable
+    2. Having a `.profraw` allows you to generate a variety of coverage reports in different formats
 6. Use the LLVM toolchain to create coverage reports as documented in the [LLVM docs](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#creating-coverage-reports)
 
 In case you are impatient and want to jump straight into getting your hands dirty, then the [examples](examples/) directory contains a few dummy eBPF programs to showcase what **bpfcov** does.
@@ -128,7 +135,7 @@ In order to **use** it, you will need:
 - clang 12 (to generate the input LLVM files)
 - its [opt](http://llvm.org/docs/CommandGuide/opt.html) binary to run the LLVM pass
 
-This project has been tested on Arch Linux (5.15).
+This project has been tested on 5.15 Linux kernels.
 
 ## Building
 
@@ -146,6 +153,8 @@ It is used to locate the corresponding `LLVMConfig.cmake` script that is used to
 library paths.
 
 ## Testing
+
+**TBD**
 
 To run the tests you will need to install **llvm-lit**.
 

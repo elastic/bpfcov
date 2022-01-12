@@ -70,10 +70,16 @@ At this point, you should be able to run it:
 sudo .output/cov/fentry
 ```
 
-Wanna build everything?
+Wanna build every eBPF application as is?
 
 ```bash
 make
+```
+
+Wanna instrument every eBPF application here for code coverage?
+
+```bash
+make cov
 ```
 
 Wanna start over but not recompile the dependencies too?
