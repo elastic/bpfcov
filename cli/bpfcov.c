@@ -1435,13 +1435,6 @@ int cov(struct root_args *args)
         log_fata(args, "could not open %s\n", "/dev/null");
     }
     log_info(args, "about to generate the %s coverage report in '%s'\n", format_string[args->cov_format], cov_output_path);
-    int outfile;
-    if (args->cov_format != FORMAT_html) {
-        outfile = open(cov_output_path, O_RDWR | O_CREAT, 0600);
-        if (outfile == -1) {
-            log_fata(args, "could not open %s\n", cov_output_path);
-        }
-    }
     switch (args->cov_format)
     {
         case FORMAT_html:
@@ -1487,9 +1480,16 @@ int cov(struct root_args *args)
             close(devnull);
             wait_or_exit(args, html_pid, "llvm-cov exited with status");
             break;
+        case FORMAT_lcov:
+            /* Fallthrough */
         case FORMAT_json:
-            pid_t json_pid;
-            switch ((json_pid = fork()))
+            int outfile = open(cov_output_path, O_RDWR | O_CREAT, 0600);
+            if (outfile == -1) {
+                log_fata(args, "could not open %s\n", cov_output_path);
+            }
+
+            pid_t export_pid;
+            switch ((export_pid = fork()))
             {
             case -1:
                 log_fata(args, "%s\n", "could not fork");
@@ -1527,13 +1527,7 @@ int cov(struct root_args *args)
             }
             close(devnull);
             close(outfile);
-            wait_or_exit(args, json_pid, "llvm-cov exited with status");
-            break;
-        case FORMAT_lcov:
-            // TODO(leodido) > add lcov support
-            close(devnull);
-            close(outfile);
-            log_fata(args, "%s report is not yet implemented\n", "lcov");
+            wait_or_exit(args, export_pid, "llvm-cov exited with status");
             break;
     }
 

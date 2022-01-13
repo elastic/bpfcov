@@ -1,2 +1,5 @@
 bpfcov
 *.profdata
+*.json
+*.lcov
+*_html
