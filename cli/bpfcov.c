@@ -742,13 +742,13 @@ cov_parse(int key, char *arg, struct argp_state *state)
                 break;
             }
 
-            char output_path[PATH_MAX];
-            int output_path_len = snprintf(output_path, PATH_MAX, "%s%s%s", "out", sep, format_string[args->parent->cov_format]);
-            if (output_path_len >= PATH_MAX)
+            char cov_output_path[PATH_MAX];
+            int cov_output_path_len = snprintf(cov_output_path, PATH_MAX, "%s%s%s", "out", sep, format_string[args->parent->cov_format]);
+            if (cov_output_path_len >= PATH_MAX)
             {
                 argp_error(state, "default output path too long");
             }
-            args->parent->cov_output = output_path;
+            args->parent->cov_output = cov_output_path;
         }
         break;
 
@@ -1307,7 +1307,10 @@ int gen(struct root_args *args)
 
 int cov(struct root_args *args)
 {
-    log_info(args, "generating coverage visualization in '%s'\n", args->cov_output);
+    log_info(args, "%s\n", "generating coverage visualization...");
+
+    char cov_output_path[PATH_MAX];
+    strcpy(cov_output_path, args->cov_output);
 
     // Generating a *.profdata for each input *.profraw
     char profdata[args->num_profraw][PATH_MAX];
@@ -1427,10 +1430,21 @@ int cov(struct root_args *args)
     }
 
     int num_bpfobj_params = num_profdata * 2;
+    int devnull = open("/dev/null", O_WRONLY | O_CREAT, 0666);
+    if (devnull == -1) {
+        log_fata(args, "could not open %s\n", "/dev/null");
+    }
+    log_info(args, "about to generate the %s coverage report in '%s'\n", format_string[args->cov_format], cov_output_path);
+    int outfile;
+    if (args->cov_format != FORMAT_html) {
+        outfile = open(cov_output_path, O_RDWR | O_CREAT, 0600);
+        if (outfile == -1) {
+            log_fata(args, "could not open %s\n", cov_output_path);
+        }
+    }
     switch (args->cov_format)
     {
         case FORMAT_html:
-            log_info(args, "about to generate the %s coverage report...\n", "html");
             pid_t html_pid;
             switch ((html_pid = fork()))
             {
@@ -1446,7 +1460,7 @@ int cov(struct root_args *args)
                 arguments[4] = "--show-line-counts-or-regions";
                 arguments[5] = "--show-region-summary";
                 arguments[6] = "--output-dir";
-                arguments[7] = args->cov_output;
+                arguments[7] = cov_output_path;
                 arguments[8] = "-instr-profile";
                 arguments[9] = target_profdata;
                 for (int i = 0; i < num_profdata; i++) {
@@ -1466,20 +1480,60 @@ int cov(struct root_args *args)
                     print_log(3, NULL, args, "%s", "\n");
                 }
 
-                int devnull = open("/dev/null", O_WRONLY | O_CREAT, 0666);
                 dup2(devnull, STDERR_FILENO);
                 execvp("llvm-cov", arguments);
-                close(devnull);
-                log_fata(args, "%s\n", "could not exec llvm-cov");
                 break;
             }
+            close(devnull);
             wait_or_exit(args, html_pid, "llvm-cov exited with status");
             break;
         case FORMAT_json:
-            // TODO(leodido) > add json support
+            pid_t json_pid;
+            switch ((json_pid = fork()))
+            {
+            case -1:
+                log_fata(args, "%s\n", "could not fork");
+                break;
+            case 0:
+                char *arguments[num_bpfobj_params + 8];
+                arguments[0] = "llvm-cov";
+                arguments[1] = "export";
+                arguments[2] = "--format=text";
+                arguments[3] = "--show-branch-summary";
+                arguments[4] = "--show-region-summary";
+                arguments[5] = "-instr-profile";
+                arguments[6] = target_profdata;
+                for (int i = 0; i < num_profdata; i++) {
+                    int off = i > 0 ? (i + 1) : i;
+                    arguments[off + 7] = "-object";
+                    arguments[off + 8] = bpfobjs[i];
+                }
+                arguments[num_bpfobj_params + 7] = NULL;
+
+                log_debu(args, "%s ", arguments[0]);
+                for (int a = 1; a < num_bpfobj_params + 7; a++) {
+                    if (DEBUG) {
+                        print_log(3, NULL, args, "%s ", arguments[a]);
+                    }
+                }
+                if (DEBUG) {
+                    print_log(3, NULL, args, "%s", "\n");
+                }
+
+                dup2(devnull, STDERR_FILENO);
+                dup2(outfile, STDOUT_FILENO);
+                execvp("llvm-cov", arguments);
+                break;
+            }
+            close(devnull);
+            close(outfile);
+            wait_or_exit(args, json_pid, "llvm-cov exited with status");
             break;
         case FORMAT_lcov:
             // TODO(leodido) > add lcov support
+            close(devnull);
+            close(outfile);
+            log_fata(args, "%s report is not yet implemented\n", "lcov");
             break;
     }
 
