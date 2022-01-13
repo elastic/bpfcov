@@ -17,6 +17,7 @@
 
 /* POSIX */
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/user.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -67,7 +68,9 @@ int cov(struct root_args *args);
 static bool is_bpffs(char *bpffs_path);
 static void strip_trailing_char(char *str, char c);
 static void replace_with(char *str, const char what, const char with);
+static void strip_extension(char *str);
 static void handle_map_pins(struct root_args *args, struct argp_state *state, bool unpin);
+static void wait_or_exit(struct root_args *args, pid_t pid, char *err);
 
 // --------------------------------------------------------------------------------------------------------------------
 // Logging
@@ -125,8 +128,9 @@ int main(int argc, char **argv)
 #define NUM_PINNED_MAPS 4
 
 #define FOREACH_FORMAT(FORMAT) \
-    FORMAT(FORMAT_, HTML)      \
-    FORMAT(FORMAT_, JSON)
+    FORMAT(FORMAT_, html)      \
+    FORMAT(FORMAT_, json)      \
+    FORMAT(FORMAT_, lcov)
 
 #define GEN_ENUM(PREFIX, ENUM) PREFIX##ENUM,
 #define GEN_STRING(PREFIX, STRING) #STRING,
@@ -148,8 +152,9 @@ struct root_args
     char *cov_root;
     char *prog_root;
     char *pin[NUM_PINNED_MAPS];
-    char *profraw;
+    char **profraw;
     char *cov_output;
+    int num_profraw;
     cov_format_t cov_format;
     int verbosity;
     callback_t command;
@@ -633,25 +638,25 @@ const char COV_OUTPUT_OPT_LONG[] = "output";
 const char COV_OUTPUT_OPT_ARG[] = "path";
 const char COV_FORMAT_OPT_KEY = 'f';
 const char COV_FORMAT_OPT_LONG[] = "format";
-const char COV_FORMAT_OPT_ARG[] = "html|json";
+const char COV_FORMAT_OPT_ARG[] = "html|json|lcov";
 
 static struct argp_option cov_opts[] = {
     {"OPTIONS:", 0, 0, OPTION_DOC, 0, 0},
-    {COV_OUTPUT_OPT_LONG, COV_OUTPUT_OPT_KEY, COV_OUTPUT_OPT_ARG, 0, "Set the output path\n(defaults to <profraw>_<format>)", 1},
-    {COV_FORMAT_OPT_LONG, COV_FORMAT_OPT_KEY, COV_FORMAT_OPT_ARG, 0, "Set the output format\n(defaults to html)", 1},
+    {COV_OUTPUT_OPT_LONG, COV_OUTPUT_OPT_KEY, COV_OUTPUT_OPT_ARG, 0, "   Set the output path\n   (defaults to out[_html/|.json|.lcov])", 1},
+    {COV_FORMAT_OPT_LONG, COV_FORMAT_OPT_KEY, COV_FORMAT_OPT_ARG, 0, "Set the output format\n   (defaults to html)", 1},
     {"\n", 0, 0, OPTION_DOC, 0, 0},
     {"GLOBALS:", 0, 0, OPTION_DOC, 0, 0},
     {0} // .
 };
 
 static char cov_docs[] = "\n"
-                         "Generate the coverage visualizations for the bpfcov instrumented program.\n"
+                         "Generate the coverage visualizations from *.profraw files.\n"
                          "\n";
 
 static struct argp cov_argp = {
     .options = cov_opts,
     .parser = cov_parse,
-    .args_doc = "<profraw>",
+    .args_doc = "<profraw>+",
     .doc = cov_docs,
 };
 
@@ -668,6 +673,10 @@ cov_parse(int key, char *arg, struct argp_state *state)
 
     switch (key)
     {
+    case ARGP_KEY_INIT:
+        args->parent->profraw = calloc(PATH_MAX, sizeof(char *));
+        args->parent->num_profraw = 0;
+        break;
     case COV_OUTPUT_OPT_KEY:
         if (strlen(arg) > 0)
         {
@@ -682,11 +691,15 @@ cov_parse(int key, char *arg, struct argp_state *state)
         {
             /**/ if (strncmp(arg, "html", 4) == 0)
             {
-                args->parent->cov_format = FORMAT_HTML;
+                args->parent->cov_format = FORMAT_html;
             }
             else if (strncmp(arg, "json", 4) == 0)
             {
-                args->parent->cov_format = FORMAT_JSON;
+                args->parent->cov_format = FORMAT_json;
+            }
+            else if (strncmp(arg, "lcov", 4) == 0)
+            {
+                args->parent->cov_format = FORMAT_lcov;
             }
             /**/ else
             {
@@ -700,37 +713,42 @@ cov_parse(int key, char *arg, struct argp_state *state)
 
     case ARGP_KEY_ARG:
         assert(arg);
-        if (state->arg_num >= 1)
-        {
-            log_warn(args->parent, "ignoring <cov> argument #%d (%s)\n", state->arg_num, arg);
-            break;
-        }
-        args->parent->profraw = arg;
+        args->parent->profraw[state->arg_num] = arg;
         break;
 
     case ARGP_KEY_END:
-        if (!args->parent->profraw)
+        if (args->parent->profraw[0] == NULL)
         {
-            argp_error(state, "missing profraw input file");
+            argp_error(state, "at least one profraw input file is required");
         }
-        if (access(args->parent->profraw, F_OK) != 0)
-        {
-            argp_error(state, "input profraw file '%s' does not actually exist", args->parent->profraw);
+        char** ptr = args->parent->profraw;
+        for (char* profraw = *ptr; profraw; profraw = *++ptr) {
+            if (access(profraw, F_OK) != 0)
+            {
+                argp_error(state, "input profraw file '%s' does not actually exist", profraw);
+            }
+            // TODO(leodido) > check it really is a profraw file?
+            args->parent->num_profraw++;
         }
-        // TODO(leodido) > check it really is a profraw file?
         if (!args->parent->cov_output)
         {
-            char *profraw_name = strdup(args->parent->profraw);
-            strtok(profraw_name, ".");
+            char *sep = ".";
+            switch (args->parent->cov_format)
+            {
+            case FORMAT_html:
+                sep = "_";
+                break;
+            default:
+                break;
+            }
 
             char output_path[PATH_MAX];
-            int output_path_len = snprintf(output_path, PATH_MAX, "%s_%s", profraw_name, format_string[args->parent->cov_format]);
+            int output_path_len = snprintf(output_path, PATH_MAX, "%s%s%s", "out", sep, format_string[args->parent->cov_format]);
             if (output_path_len >= PATH_MAX)
             {
                 argp_error(state, "default output path too long");
             }
             args->parent->cov_output = output_path;
-            free(profraw_name);
         }
         break;
 
@@ -836,7 +854,7 @@ void print_log(int level, const char *prefix, struct root_args *args, const char
         break;
     }
 
-    fprintf(f, "bpfcov: %s: ", category);
+    fprintf(f, "%s: %s: ", TOOL_NAME, category);
 
 without_prefix:
     vfprintf(f, fmt, argptr);
@@ -871,6 +889,17 @@ static void replace_with(char *str, const char what, const char with)
             *str = with;
         }
         str++;
+    }
+}
+
+static void strip_extension(char *str)
+{
+    char *end = str + strlen(str);
+    while (end > str && *end != '.' && *end != '\\' && *end != '/') {
+        --end;
+    }
+    if ((end > str && *end == '.') && (*(end - 1) != '\\' && *(end - 1) != '/')) {
+        *end = '\0';
     }
 }
 
@@ -998,26 +1027,42 @@ error_out:
     return err;
 }
 
+static void wait_or_exit(struct root_args *args, pid_t pid, char *err) {
+    if (!err) {
+        err = "exited with status";
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    if (WIFEXITED(status))
+    {
+        int exit_status = WEXITSTATUS(status);
+        if (exit_status != 0)
+        {
+            log_fata(args, "%s %d\n", err, exit_status);
+        }
+    }
+}
+
 // --------------------------------------------------------------------------------------------------------------------
 // Implementation
 // --------------------------------------------------------------------------------------------------------------------
 
 int run(struct root_args *args)
 {
-    log_info(args, "run: executing program '%s'\n", args->program[0]);
+    log_info(args, "executing program '%s'\n", args->program[0]);
 
     pid_t pid = fork();
     switch (pid)
     {
     case -1: /* Error */
-        log_fata(args, "run: %s\n", strerror(errno));
+        log_fata(args, "%s\n", strerror(errno));
     case 0: /* Child */
         if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) < 0)
         {
             log_fata(args, "%s\n", strerror(errno));
         }
         execvp(args->program[0], args->program);
-        log_fata(args, "run: %s\n", strerror(errno));
+        log_fata(args, "%s\n", strerror(errno));
     }
 
     /* Parent */
@@ -1030,20 +1075,20 @@ int run(struct root_args *args)
         /* Enter next system call */
         if (ptrace(PTRACE_SYSCALL, pid, 0, 0) == -1)
         {
-            log_fata(args, "run: %s\n", strerror(errno));
+            log_fata(args, "%s\n", strerror(errno));
         }
 
         /* Waiting for PID to die */
         if (waitpid(pid, 0, 0) == -1)
         {
-            log_fata(args, "run: %s\n", strerror(errno));
+            log_fata(args, "%s\n", strerror(errno));
         }
 
         /* Gather system call arguments */
         struct user_regs_struct regs;
         if (ptrace(PTRACE_GETREGS, pid, 0, &regs) == -1)
         {
-            log_fata(args, "run: %s\n", strerror(errno));
+            log_fata(args, "%s\n", strerror(errno));
         }
 
         /* Mark bpf(BPF_MAP_CREATE, ...) */
@@ -1053,36 +1098,40 @@ int run(struct root_args *args)
 
         /* Print a representation of the system call */
         log_debu(args,
-                 "run: %d(%d, %ld, %ld, %ld, %ld, %ld)",
+                 "%d(%d, %ld, %ld, %ld, %ld, %ld)",
                  sysc,
                  comm, (long)regs.rsi, (long)regs.rdx, (long)regs.r10, (long)regs.r8, (long)regs.r9);
 
         /* Run system call and stop on exit */
         if (ptrace(PTRACE_SYSCALL, pid, 0, 0) == -1)
         {
-            log_fata(args, "run: %s\n", strerror(errno));
+            log_fata(args, "%s\n", strerror(errno));
         }
 
         /* Waiting for PID to die */
         if (waitpid(pid, 0, 0) == -1)
         {
-            log_fata(args, "run: %s\n", strerror(errno));
+            log_fata(args, "%s\n", strerror(errno));
         }
 
         /* Get system call result */
         if (ptrace(PTRACE_GETREGS, pid, 0, &regs) == -1)
         {
-            print_log(3, NULL, args, "%s\n", " = ?");
+            if (DEBUG) {
+                print_log(3, NULL, args, "%s\n", " = ?");
+            }
             if (errno == ESRCH)
             {
                 exit(regs.rdi); // _exit(2) or similar
             }
-            log_fata(args, "run: %s\n", strerror(errno));
+            log_fata(args, "%s\n", strerror(errno));
         }
 
         /* Print system call result */
         long result = regs.rax;
-        print_log(3, NULL, args, " = %ld\n", result);
+        if (DEBUG) {
+            print_log(3, NULL, args, " = %ld\n", result);
+        }
 
         /* Pin the bpfcov maps */
         if (is_map && result)
@@ -1104,7 +1153,7 @@ int run(struct root_args *args)
             err = get_map_info(curfd, &map_info);
             if (!err && strlen(map_info.name) > 0)
             {
-                log_info(args, "run: got info about map '%s'\n", map_info.name);
+                log_info(args, "got info about map '%s'\n", map_info.name);
 
                 char map_name[BPF_OBJ_NAME_LEN];
                 strcpy(map_name, map_info.name);
@@ -1121,12 +1170,12 @@ int run(struct root_args *args)
                     {
                         if (errno == EEXIST)
                         {
-                            log_warn(args, "run: pin '%s' already exists for map '%s'\n", pin_path, map_name);
+                            log_warn(args, "pin '%s' already exists for map '%s'\n", pin_path, map_name);
                             continue;
                         }
-                        log_fata(args, "run: %s\n", "could not pin map");
+                        log_fata(args, "%s\n", "could not pin map");
                     }
-                    log_warn(args, "run: pin map '%s' to '%s'\n", map_name, pin_path);
+                    log_warn(args, "pin map '%s' to '%s'\n", map_name, pin_path);
                 }
             }
         }
@@ -1258,7 +1307,181 @@ int gen(struct root_args *args)
 
 int cov(struct root_args *args)
 {
-    log_info(args, "generating coverage visualization in '%s' from '%s'\n", args->cov_output, args->profraw);
+    log_info(args, "generating coverage visualization in '%s'\n", args->cov_output);
+
+    // Generating a *.profdata for each input *.profraw
+    char profdata[args->num_profraw][PATH_MAX];
+    memset(profdata, 0, args->num_profraw * PATH_MAX * sizeof(char));
+
+    char bpfobjs[args->num_profraw][PATH_MAX];
+    memset(bpfobjs, 0, args->num_profraw * PATH_MAX * sizeof(char));
+
+    int c = 0;
+    char** ptr = args->profraw;
+    for (char* profraw = *ptr; profraw; profraw = *++ptr) {
+        // Looking up for *.bpf.obj file sibling to the current input *.profraw file
+        char *profraw_wo_ext = strdup(profraw);
+        strip_extension(profraw_wo_ext);
+
+        char bpfobj_path[PATH_MAX];
+        int bpfobj_path_len = snprintf(bpfobj_path, PATH_MAX, "%s.bpf.obj", profraw_wo_ext);
+        if (bpfobj_path_len >= PATH_MAX)
+        {
+            log_fata(args, "%s\n", "bpf.obj output path too long");
+        }
+        log_info(args, "looking for BPF coverage object at '%s'\n", bpfobj_path);
+        if (access(bpfobj_path, F_OK) != 0)
+        {
+            log_fata(args, "could not find the BPF coverage object at '%s'", bpfobj_path);
+        }
+        free(profraw_wo_ext);
+
+        // Storing the *.bpf.obj file for later
+        strncpy(bpfobjs[c], bpfobj_path, PATH_MAX);
+
+        // Creating the *.profdata path (relative to the execution directory)
+        char *profraw_name = strdup(basename(profraw));
+        strtok(profraw_name, ".");
+
+        char profdata_path[PATH_MAX];
+        int profdata_path_len = snprintf(profdata_path, PATH_MAX, "%s.profdata", profraw_name);
+        if (profdata_path_len >= PATH_MAX)
+        {
+            log_fata(args, "%s\n", "profdata output path too long");
+        }
+        free(profraw_name);
+
+        // Storing the output *.profdata file for later
+        strncpy(profdata[c], profdata_path, PATH_MAX);
+        log_info(args, "generating '%s'\n", profdata[c]);
+
+        // Generating the single *.profdata file
+        pid_t data_pid;
+        switch ((data_pid = fork()))
+        {
+        case -1:
+            log_fata(args, "%s\n", "could not fork");
+            break;
+        case 0:
+            log_debu(args, "llvm-profdata merge -sparse %s -o %s\n", profraw, profdata[c]);
+
+            int devnull = open("/dev/null", O_WRONLY | O_CREAT, 0666);
+            dup2(devnull, STDERR_FILENO);
+            execlp("llvm-profdata", "llvm-profdata", "merge", "-sparse", profraw, "-o", profdata[c], NULL);
+            close(devnull);
+            log_fata(args, "%s\n", "could not exec llvm-profdata");
+            break;
+        }
+        wait_or_exit(args, data_pid, "llvm-profdata: exited with status");
+
+        c++;
+    }
+
+    // Merge all the *.profdata into one
+    char target_profdata[PATH_MAX];
+    int num_profdata = sizeof(profdata) / PATH_MAX;
+    if (num_profdata > 1) {
+        strncpy(target_profdata, "all.profdata", PATH_MAX);
+
+        log_info(args, "merging into '%s'\n", target_profdata);
+
+        pid_t merge_pid;
+        switch ((merge_pid = fork()))
+        {
+        case -1:
+            log_fata(args, "%s\n", "could not fork");
+            break;
+        case 0:
+            char *arguments[num_profdata + 6];
+            arguments[0] = "llvm-profdata";
+            arguments[1] = "merge";
+            arguments[2] = "-sparse";
+            arguments[3] = "-o";
+            arguments[4] = target_profdata;
+            for (int i = 0; i < num_profdata; i++) {
+                arguments[i + 5] = profdata[i];
+            }
+            arguments[num_profdata + 5] = NULL;
+
+            log_debu(args, "%s ", arguments[0]);
+            for (int a = 1; a < num_profdata + 5; a++) {
+                if (DEBUG) {
+                    print_log(3, NULL, args, "%s ", arguments[a]);
+                }
+            }
+            if (DEBUG) {
+                print_log(3, NULL, args, "%s", "\n");
+            }
+
+            int devnull = open("/dev/null", O_WRONLY | O_CREAT, 0666);
+            dup2(devnull, STDERR_FILENO);
+            execvp("llvm-profdata", arguments);
+            close(devnull);
+            log_fata(args, "%s\n", "could not exec llvm-profdata");
+            break;
+        }
+        wait_or_exit(args, merge_pid, "llvm-profdata: exited with status");
+    }
+    else {
+        strncpy(target_profdata, profdata[0], PATH_MAX);
+    }
+
+    int num_bpfobj_params = num_profdata * 2;
+    switch (args->cov_format)
+    {
+        case FORMAT_html:
+            log_info(args, "about to generate the %s coverage report...\n", "html");
+            pid_t html_pid;
+            switch ((html_pid = fork()))
+            {
+            case -1:
+                log_fata(args, "%s\n", "could not fork");
+                break;
+            case 0:
+                char *arguments[num_bpfobj_params + 11];
+                arguments[0] = "llvm-cov";
+                arguments[1] = "show";
+                arguments[2] = "--format=html";
+                arguments[3] = "--show-branches=count";
+                arguments[4] = "--show-line-counts-or-regions";
+                arguments[5] = "--show-region-summary";
+                arguments[6] = "--output-dir";
+                arguments[7] = args->cov_output;
+                arguments[8] = "-instr-profile";
+                arguments[9] = target_profdata;
+                for (int i = 0; i < num_profdata; i++) {
+                    int off = i > 0 ? (i + 1) : i;
+                    arguments[off + 10] = "-object";
+                    arguments[off + 11] = bpfobjs[i];
+                }
+                arguments[num_bpfobj_params + 10] = NULL;
+
+                log_debu(args, "%s ", arguments[0]);
+                for (int a = 1; a < num_bpfobj_params + 10; a++) {
+                    if (DEBUG) {
+                        print_log(3, NULL, args, "%s ", arguments[a]);
+                    }
+                }
+                if (DEBUG) {
+                    print_log(3, NULL, args, "%s", "\n");
+                }
+
+                int devnull = open("/dev/null", O_WRONLY | O_CREAT, 0666);
+                dup2(devnull, STDERR_FILENO);
+                execvp("llvm-cov", arguments);
+                close(devnull);
+                log_fata(args, "%s\n", "could not exec llvm-cov");
+                break;
+            }
+            wait_or_exit(args, html_pid, "llvm-cov exited with status");
+            break;
+        case FORMAT_json:
+            // TODO(leodido) > add json support
+            break;
+        case FORMAT_lcov:
+            // TODO(leodido) > add lcov support
+            break;
+    }
 
     return 0;
 }
