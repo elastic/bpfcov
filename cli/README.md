@@ -51,7 +51,13 @@ sudo ./bpfcov -v2 gen --unpin -o hellow.profraw ../examples/src/.output/cov/raw_
 
 Now that you have a fresh `.profraw` file you can use the **LLVM tools** ([llvm-profdata](https://llvm.org/docs/CommandGuide/llvm-profdata.html), and [llvm-cov](https://llvm.org/docs/CommandGuide/llvm-cov.html)) as usual to get a nice **source-based coverage** report out of it.
 
-For example, you may want to generate a `*.profdata` file:
+Or you can use `bpfcov cov ...`!
+
+It acts as an opinionated wrapper to the `llvm-profdata` and `llvm-cov` commands you'd need to execute manually otherwise. [This sections](#generating-coverage-reports) shows how it works!
+
+Anyways, here's how to output a source-based code coverage report to the standard output starting from the `*.profraw` file we just generated.
+
+First, generate a `*.profdata` file:
 
 ```bash
 $ llvm-profdata merge -sparse hellow.profraw -o hellow.profdata
@@ -100,9 +106,77 @@ The previous command will output the annotated source code to `stdout`:
    28|      1|}
 ```
 
-You can also output a JSON report, or an HTML one. It's your call!
+You can also output a JSON report, a LCOV, or an HTML one (see [the next section](generating-coverage-reports)). It's your call!
 
 Feel free to explore the different flags the **bpfcov** CLI and its subcommand supports by reading their manual (more in the [help section](#help)).
+
+### Generating coverage reports
+
+This section shows how to generate code coverage reports for your eBPF programs, either via the **bpfcov** CLI (more straightforward) or manually.
+
+It shows how to do it for a few eBPF applications in a single report, either HTML, json, or lcov.
+
+But the same applies if you only have one eBPF application for which you want to generate a report.
+
+Assuming we have gerenated with `bpfcov gen ...` the `*.profraw` files for 3 examples,
+we can generate a **HTML* report for all of them:
+
+```bash
+./bpfcov -v2 cov -o awesome_html_cov_report \
+  ../examples/src/.output/cov/lsm.profraw ../examples/src/.output/cov/fentry.profraw ../examples/src/.output/cov/fentry.profraw
+````
+
+Generating a **JSON** report it's just a matter of specifing the format:
+
+```bash
+./bpfcov -v2 cov --format=json \
+  ../examples/src/.output/cov/lsm.profraw ../examples/src/.output/cov/fentry.profraw ../examples/src/.output/cov/fentry.profraw
+```
+
+By default, the `cov` subcommand will output in `out.json` when the `--output` flag is not specified.
+
+No need to repeat myself showing the `lcov` format... Right?
+
+Just in case you need to fine-tune the coverage report by passing different arguments to `llvm-cov`,
+here is how to manually do the same things the `bpfcov cov` command does.
+
+1. Generate the `*.profdata` files from your `*.profraw` ones:
+
+```bash
+llvm-profdata merge -sparse ../examples/src/.output/cov/lsm.profraw -o lsm.profdata
+llvm-profdata merge -sparse ../examples/src/.output/cov/fentry.profraw -o fentry.profdata
+llvm-profdata merge -sparse ../examples/src/.output/cov/raw_enter.profraw -o raw_enter.profdata
+```
+
+2. Merge all of them in a single `all.profdata` file:
+
+```bash
+llvm-profdata merge \
+  -sparse lsm.profdata fentry.profdata raw_enter.profdata \
+  -o all.profdata
+```
+
+3. Play with `llvm-cov` to outpu your **HTML** coverage report, for example:
+
+```bash
+llvm-cov show --format=html \
+  --show-branches=count --show-line-counts-or-regions --show-region-summary \
+  -instr-profile=all.profdata \
+  -object ../examples/src/.output/cov/raw_enter.bpf.obj -object ../examples/src/.output/cov/fentry.bpf.obj -object ../examples/src/.output/cov/lsm.bpf.obj \
+  --output-dir=../yay
+```
+
+Notice that this is the step where you need the `*.bpf.obj` archive files!
+
+4. Want to export an **lcov** representation of the coverage and generate a line coverage HTML report only?
+
+```bash
+llvm-cov export --format=lcov \
+  --show-region-summary --show-branch-summary \
+  -instr-profile=all.profdata \
+  -object ../examples/src/.output/cov/raw_enter.bpf.obj -object ../examples/src/.output/cov/fentry.bpf.obj -object ../examples/src/.output/cov/lsm.bpf.obj > all.info
+genhtml all.info --legend --show-details --highlight --output-directory ../lcov_line_coverage
+```
 
 ## Help
 
