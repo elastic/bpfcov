@@ -185,7 +185,7 @@ The **bpfcov** CLI provides a detailed `--help` flag.
 ```bash
 $ ./bpfcov --help
 
-Usage: bpfcov [OPTION...] [run|gen] <program>
+Usage: bpfcov [OPTION...] [run|gen|cov] <arg(s)>
 
 Obtain coverage from your instrumented eBPF programs.
 
@@ -206,6 +206,7 @@ for any corresponding short options.
   EXAMPLES:
   bpfcov run <program>
   bpfcov gen <program>
+  bpfcov cov <program.profraw>+
 
 ...
 ```

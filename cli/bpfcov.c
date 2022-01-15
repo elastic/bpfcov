@@ -191,12 +191,12 @@ static char root_docs[] =
     "  EXAMPLES:\n"
     "  bpfcov run <program>\n"
     "  bpfcov gen <program>\n"
-    "  bpfcov <program>\n";
+    "  bpfcov cov <program.profraw>+\n";
 
 static struct argp root_argp = {
     .options = root_opts,
     .parser = root_parse,
-    .args_doc = "[run|gen] <program>",
+    .args_doc = "[run|gen|cov] <arg(s)>",
     .doc = root_docs,
 };
 
