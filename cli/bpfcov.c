@@ -1457,7 +1457,7 @@ int cov(struct root_args *args)
                 arguments[8] = "-instr-profile";
                 arguments[9] = target_profdata;
                 for (int i = 0; i < num_profdata; i++) {
-                    int off = i > 0 ? (i + 1) : i;
+                    int off = i * 2;
                     arguments[off + 10] = "-object";
                     arguments[off + 11] = bpfobjs[i];
                 }
