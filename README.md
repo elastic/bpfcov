@@ -121,6 +121,12 @@ llvm-cov show \
     --output-dir=cov/html_report
 ```
 
+Anyayws, **bpfcov** also provides you an opinionated shortcut command to generate HTML, JSON, and LCOV coverage reports:
+
+```bash
+./bpfcov out --format=html cov/program.profraw
+```
+
 
 ## Development Environment
 

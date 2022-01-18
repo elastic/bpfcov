@@ -51,7 +51,7 @@ sudo ./bpfcov -v2 gen --unpin -o hellow.profraw ../examples/src/.output/cov/raw_
 
 Now that you have a fresh `.profraw` file you can use the **LLVM tools** ([llvm-profdata](https://llvm.org/docs/CommandGuide/llvm-profdata.html), and [llvm-cov](https://llvm.org/docs/CommandGuide/llvm-cov.html)) as usual to get a nice **source-based coverage** report out of it.
 
-Or you can use `bpfcov cov ...`!
+Or you can use `bpfcov out ...`!
 
 It acts as an opinionated wrapper to the `llvm-profdata` and `llvm-cov` commands you'd need to execute manually otherwise. [This sections](#generating-coverage-reports) shows how it works!
 
@@ -122,23 +122,23 @@ Assuming we have gerenated with `bpfcov gen ...` the `*.profraw` files for 3 exa
 we can generate a **HTML* report for all of them:
 
 ```bash
-./bpfcov -v2 cov -o awesome_html_cov_report \
+./bpfcov -v2 out -o awesome_html_cov_report \
   ../examples/src/.output/cov/lsm.profraw ../examples/src/.output/cov/fentry.profraw ../examples/src/.output/cov/fentry.profraw
 ````
 
 Generating a **JSON** report it's just a matter of specifing the format:
 
 ```bash
-./bpfcov -v2 cov --format=json \
+./bpfcov -v2 out --format=json \
   ../examples/src/.output/cov/lsm.profraw ../examples/src/.output/cov/fentry.profraw ../examples/src/.output/cov/fentry.profraw
 ```
 
-By default, the `cov` subcommand will output in `out.json` when the `--output` flag is not specified.
+By default, the `out` subcommand will output in `out.json` when the `--output` flag is not specified.
 
 No need to repeat myself showing the `lcov` format... Right?
 
 Just in case you need to fine-tune the coverage report by passing different arguments to `llvm-cov`,
-here is how to manually do the same things the `bpfcov cov` command does.
+here is how to manually do the same things the `bpfcov out` command does.
 
 1. Generate the `*.profdata` files from your `*.profraw` ones:
 
@@ -185,9 +185,9 @@ The **bpfcov** CLI provides a detailed `--help` flag.
 ```bash
 $ ./bpfcov --help
 
-Usage: bpfcov [OPTION...] [run|gen|cov] <arg(s)>
+Usage: bpfcov [OPTION...] [run|gen|out] <arg(s)>
 
-Obtain coverage from your instrumented eBPF programs.
+Obtain coverage from your instrumented eBPF applications.
 
   OPTIONS:
       --bpffs=path           Set the BPF FS path (defaults to /sys/fs/bpf)
@@ -206,7 +206,7 @@ for any corresponding short options.
   EXAMPLES:
   bpfcov run <program>
   bpfcov gen <program>
-  bpfcov cov <program.profraw>+
+  bpfcov out <program.profraw>+
 
 ...
 ```
@@ -220,7 +220,7 @@ $ ./bpfcov gen --help
 
 Usage: bpfcov gen [OPTION...] <program>
 
-Generate the profraw file for the bpfcov instrumented program.
+Generate the profraw file for the bpfcov instrumented eBPF applications.
 
 
   OPTIONS:
