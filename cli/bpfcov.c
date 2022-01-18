@@ -61,9 +61,9 @@ void gen_cmd(struct argp_state *state);
 static error_t gen_parse(int key, char *arg, struct argp_state *state);
 int gen(struct root_args *args);
 
-void cov_cmd(struct argp_state *state);
-static error_t cov_parse(int key, char *arg, struct argp_state *state);
-int cov(struct root_args *args);
+void out_cmd(struct argp_state *state);
+static error_t out_parse(int key, char *arg, struct argp_state *state);
+int out(struct root_args *args);
 
 static bool is_bpffs(char *bpffs_path);
 static void strip_trailing_char(char *str, char c);
@@ -135,14 +135,14 @@ int main(int argc, char **argv)
 #define GEN_ENUM(PREFIX, ENUM) PREFIX##ENUM,
 #define GEN_STRING(PREFIX, STRING) #STRING,
 
-enum cov_format
+enum out_format
 {
     FOREACH_FORMAT(GEN_ENUM)
 };
 
 static const char *format_string[] = {FOREACH_FORMAT(GEN_STRING)};
 
-typedef enum cov_format cov_format_t;
+typedef enum out_format out_format_t;
 
 struct root_args
 {
@@ -153,9 +153,9 @@ struct root_args
     char *prog_root;
     char *pin[NUM_PINNED_MAPS];
     char **profraw;
-    char *cov_output;
+    char *report_path;
     int num_profraw;
-    cov_format_t cov_format;
+    out_format_t out_format;
     int verbosity;
     callback_t command;
     char **program;
@@ -186,17 +186,17 @@ static struct argp_option root_opts[] = {
 
 static char root_docs[] =
     "\n"
-    "Obtain coverage from your instrumented eBPF programs."
+    "Obtain source-based code coverage from your instrumented eBPF applications."
     "\v"
     "  EXAMPLES:\n"
     "  bpfcov run <program>\n"
     "  bpfcov gen <program>\n"
-    "  bpfcov cov <program.profraw>+\n";
+    "  bpfcov out <program.profraw>+\n";
 
 static struct argp root_argp = {
     .options = root_opts,
     .parser = root_parse,
-    .args_doc = "[run|gen|cov] <arg(s)>",
+    .args_doc = "[run|gen|out] <arg(s)>",
     .doc = root_docs,
 };
 
@@ -266,10 +266,10 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
             args->command = &gen;
             gen_cmd(state);
         }
-        else if (strncmp(arg, "cov", 3) == 0)
+        else if (strncmp(arg, "out", 3) == 0)
         {
-            args->command = &cov;
-            cov_cmd(state);
+            args->command = &out;
+            out_cmd(state);
         }
         else
         {
@@ -284,7 +284,7 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
         {
             argp_state_help(state, state->err_stream, ARGP_HELP_STD_HELP);
         }
-        if (args->command != &cov && args->program[0] == NULL)
+        if (args->command != &out && args->program[0] == NULL)
         {
             // This should never happen
             argp_error(state, "unexpected missing <program>");
@@ -295,11 +295,11 @@ static error_t root_parse(int key, char *arg, struct argp_state *state)
     case ARGP_KEY_FINI:
         bool is_run = args->command == &run;
 
-        // When the subcommand is <cov>
+        // When the subcommand is <out>
         // - do not validate BPF FS
         // - do not generate pinning paths
         // - do not clean up (<run>) or check (<gen>) pinned maps
-        if (args->command == &cov)
+        if (args->command == &out)
         {
             break;
         }
@@ -425,7 +425,7 @@ static struct argp_option run_opts[] = {
 };
 
 static char run_docs[] = "\n"
-                         "Execute your bpfcov instrumented program.\n"
+                         "Execute your bpfcov instrumented eBPF applications.\n"
                          "\n";
 
 static struct argp run_argp = {
@@ -525,7 +525,7 @@ static struct argp_option gen_opts[] = {
 };
 
 static char gen_docs[] = "\n"
-                         "Generate the profraw file for the bpfcov instrumented program.\n"
+                         "Generate the profraw file for the bpfcov instrumented eBPF applications.\n"
                          "\n";
 
 static struct argp gen_argp = {
@@ -625,51 +625,51 @@ void gen_cmd(struct argp_state *state)
 }
 
 // --------------------------------------------------------------------------------------------------------------------
-// CLI / bpfcov cov
+// CLI / bpfcov out
 // --------------------------------------------------------------------------------------------------------------------
 
-struct cov_args
+struct out_args
 {
     struct root_args *parent;
 };
 
-const char COV_OUTPUT_OPT_KEY = 'o';
-const char COV_OUTPUT_OPT_LONG[] = "output";
-const char COV_OUTPUT_OPT_ARG[] = "path";
-const char COV_FORMAT_OPT_KEY = 'f';
-const char COV_FORMAT_OPT_LONG[] = "format";
-const char COV_FORMAT_OPT_ARG[] = "html|json|lcov";
+const char OUT_OUTPUT_OPT_KEY = 'o';
+const char OUT_OUTPUT_OPT_LONG[] = "output";
+const char OUT_OUTPUT_OPT_ARG[] = "path";
+const char OUT_FORMAT_OPT_KEY = 'f';
+const char OUT_FORMAT_OPT_LONG[] = "format";
+const char OUT_FORMAT_OPT_ARG[] = "html|json|lcov";
 
-static struct argp_option cov_opts[] = {
+static struct argp_option out_opts[] = {
     {"OPTIONS:", 0, 0, OPTION_DOC, 0, 0},
-    {COV_OUTPUT_OPT_LONG, COV_OUTPUT_OPT_KEY, COV_OUTPUT_OPT_ARG, 0, "   Set the output path\n   (defaults to out[_html/|.json|.lcov])", 1},
-    {COV_FORMAT_OPT_LONG, COV_FORMAT_OPT_KEY, COV_FORMAT_OPT_ARG, 0, "Set the output format\n   (defaults to html)", 1},
+    {OUT_OUTPUT_OPT_LONG, OUT_OUTPUT_OPT_KEY, OUT_OUTPUT_OPT_ARG, 0, "   Set the output path\n   (defaults to out[_html/|.json|.lcov])", 1},
+    {OUT_FORMAT_OPT_LONG, OUT_FORMAT_OPT_KEY, OUT_FORMAT_OPT_ARG, 0, "Set the output format\n   (defaults to html)", 1},
     {"\n", 0, 0, OPTION_DOC, 0, 0},
     {"GLOBALS:", 0, 0, OPTION_DOC, 0, 0},
     {0} // .
 };
 
-static char cov_docs[] = "\n"
-                         "Generate the coverage visualizations from *.profraw files.\n"
+static char out_docs[] = "\n"
+                         "Generate the coverage reports from 1 or more profraw files.\n"
                          "\n";
 
-static struct argp cov_argp = {
-    .options = cov_opts,
-    .parser = cov_parse,
+static struct argp out_argp = {
+    .options = out_opts,
+    .parser = out_parse,
     .args_doc = "<profraw>+",
-    .doc = cov_docs,
+    .doc = out_docs,
 };
 
 static error_t
-cov_parse(int key, char *arg, struct argp_state *state)
+out_parse(int key, char *arg, struct argp_state *state)
 {
-    struct cov_args *args = state->input;
+    struct out_args *args = state->input;
 
     assert(args);
     assert(args->parent);
 
     char str[2];
-    log_debu(args->parent, "parsing <cov> %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
+    log_debu(args->parent, "parsing <out> %s = '%s'\n", argp_key(key, str), arg ? arg : "(null)");
 
     switch (key)
     {
@@ -677,38 +677,38 @@ cov_parse(int key, char *arg, struct argp_state *state)
         args->parent->profraw = calloc(PATH_MAX, sizeof(char *));
         args->parent->num_profraw = 0;
         break;
-    case COV_OUTPUT_OPT_KEY:
+    case OUT_OUTPUT_OPT_KEY:
         if (strlen(arg) > 0)
         {
-            args->parent->cov_output = arg;
+            args->parent->report_path = arg;
             break;
         }
-        argp_error(state, "option '--%s' requires a %s", COV_OUTPUT_OPT_LONG, COV_OUTPUT_OPT_ARG);
+        argp_error(state, "option '--%s' requires a %s", OUT_OUTPUT_OPT_LONG, OUT_OUTPUT_OPT_ARG);
         break;
 
-    case COV_FORMAT_OPT_KEY:
+    case OUT_FORMAT_OPT_KEY:
         if (strlen(arg) > 0)
         {
             /**/ if (strncmp(arg, "html", 4) == 0)
             {
-                args->parent->cov_format = FORMAT_html;
+                args->parent->out_format = FORMAT_html;
             }
             else if (strncmp(arg, "json", 4) == 0)
             {
-                args->parent->cov_format = FORMAT_json;
+                args->parent->out_format = FORMAT_json;
             }
             else if (strncmp(arg, "lcov", 4) == 0)
             {
-                args->parent->cov_format = FORMAT_lcov;
+                args->parent->out_format = FORMAT_lcov;
             }
             /**/ else
             {
-                goto cov_format_error;
+                goto out_format_error;
             }
             break;
         }
-    cov_format_error:
-        argp_error(state, "option '--%s' requires a value (%s)", COV_FORMAT_OPT_LONG, COV_FORMAT_OPT_ARG);
+    out_format_error:
+        argp_error(state, "option '--%s' requires a value (%s)", OUT_FORMAT_OPT_LONG, OUT_FORMAT_OPT_ARG);
         break;
 
     case ARGP_KEY_ARG:
@@ -730,10 +730,10 @@ cov_parse(int key, char *arg, struct argp_state *state)
             // TODO(leodido) > check it really is a profraw file?
             args->parent->num_profraw++;
         }
-        if (!args->parent->cov_output)
+        if (!args->parent->report_path)
         {
             char *sep = ".";
-            switch (args->parent->cov_format)
+            switch (args->parent->out_format)
             {
             case FORMAT_html:
                 sep = "_";
@@ -742,43 +742,43 @@ cov_parse(int key, char *arg, struct argp_state *state)
                 break;
             }
 
-            char cov_output_path[PATH_MAX];
-            int cov_output_path_len = snprintf(cov_output_path, PATH_MAX, "%s%s%s", "out", sep, format_string[args->parent->cov_format]);
-            if (cov_output_path_len >= PATH_MAX)
+            char report_path[PATH_MAX];
+            int report_path_len = snprintf(report_path, PATH_MAX, "%s%s%s", "out", sep, format_string[args->parent->out_format]);
+            if (report_path_len >= PATH_MAX)
             {
                 argp_error(state, "default output path too long");
             }
-            args->parent->cov_output = cov_output_path;
+            args->parent->report_path = report_path;
         }
         break;
 
     default:
-        log_debu(args->parent, "parsing <cov> UNKNOWN = '%s'\n", arg ? arg : "(null)");
+        log_debu(args->parent, "parsing <out> UNKNOWN = '%s'\n", arg ? arg : "(null)");
         return ARGP_ERR_UNKNOWN;
     }
 
     return 0;
 }
 
-void cov_cmd(struct argp_state *state)
+void out_cmd(struct argp_state *state)
 {
-    struct cov_args args = {};
+    struct out_args args = {};
     int argc = state->argc - state->next + 1;
     char **argv = &state->argv[state->next - 1];
     char *argv0 = argv[0];
 
     args.parent = state->input;
 
-    log_debu(args.parent, "begin <cov> (argc = %d, argv[0] = %s)\n", argc, argv[0]);
+    log_debu(args.parent, "begin <out> (argc = %d, argv[0] = %s)\n", argc, argv[0]);
 
-    argv[0] = malloc(strlen(state->name) + strlen(" cov") + 1);
+    argv[0] = malloc(strlen(state->name) + strlen(" out") + 1);
     if (!argv[0])
     {
         argp_failure(state, 1, ENOMEM, 0);
     }
-    sprintf(argv[0], "%s cov", state->name);
+    sprintf(argv[0], "%s out", state->name);
 
-    argp_parse(&cov_argp, argc, argv, ARGP_IN_ORDER, &argc, &args);
+    argp_parse(&out_argp, argc, argv, ARGP_IN_ORDER, &argc, &args);
 
     free(argv[0]);
 
@@ -786,7 +786,7 @@ void cov_cmd(struct argp_state *state)
 
     state->next += argc - 1;
 
-    log_debu(args.parent, "end <cov> (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
+    log_debu(args.parent, "end <out> (next = %d, argv[next] = %s)\n", state->next, state->argv[state->next]);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -1305,12 +1305,12 @@ int gen(struct root_args *args)
     return 0;
 }
 
-int cov(struct root_args *args)
+int out(struct root_args *args)
 {
     log_info(args, "%s\n", "generating coverage visualization...");
 
-    char cov_output_path[PATH_MAX];
-    strcpy(cov_output_path, args->cov_output);
+    char report_path[PATH_MAX];
+    strcpy(report_path, args->report_path);
 
     // Generating a *.profdata for each input *.profraw
     char profdata[args->num_profraw][PATH_MAX];
@@ -1434,8 +1434,8 @@ int cov(struct root_args *args)
     if (devnull == -1) {
         log_fata(args, "could not open %s\n", "/dev/null");
     }
-    log_info(args, "about to generate the %s coverage report in '%s'\n", format_string[args->cov_format], cov_output_path);
-    switch (args->cov_format)
+    log_info(args, "about to generate the %s coverage report in '%s'\n", format_string[args->out_format], report_path);
+    switch (args->out_format)
     {
         case FORMAT_html:
             pid_t html_pid;
@@ -1453,7 +1453,7 @@ int cov(struct root_args *args)
                 arguments[4] = "--show-line-counts-or-regions";
                 arguments[5] = "--show-region-summary";
                 arguments[6] = "--output-dir";
-                arguments[7] = cov_output_path;
+                arguments[7] = report_path;
                 arguments[8] = "-instr-profile";
                 arguments[9] = target_profdata;
                 for (int i = 0; i < num_profdata; i++) {
@@ -1483,9 +1483,9 @@ int cov(struct root_args *args)
         case FORMAT_lcov:
             /* Fallthrough */
         case FORMAT_json:
-            int outfile = open(cov_output_path, O_RDWR | O_CREAT, 0600);
+            int outfile = open(report_path, O_RDWR | O_CREAT, 0600);
             if (outfile == -1) {
-                log_fata(args, "could not open %s\n", cov_output_path);
+                log_fata(args, "could not open %s\n", report_path);
             }
 
             pid_t export_pid;
